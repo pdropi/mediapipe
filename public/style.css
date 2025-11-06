@@ -108,11 +108,7 @@ footer {
 
 /* ===== ESTILOS ESPECÍFICOS PARA WEBCAM ===== */
 /* Container da webcam */
-#liveView {
-  transform: rotateY(180deg);
-  -webkit-transform: rotateY(180deg);
-  -moz-transform: rotateY(180deg);
-}
+
 
 /* Vídeo da webcam */
 #webcam {
