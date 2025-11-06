@@ -118,9 +118,6 @@ async function handleClick(event) {
 // Demo 2: Continuously grab image from webcam stream and detect it.
 ********************************************************************/
 
-/********************************************************************
- * Webcam demo (mesmo código de antes, mas dentro de função)
- ********************************************************************/
 function setupWebcamDemo() {
   const video = document.getElementById("webcam") as HTMLVideoElement;
   const canvasElement = document.getElementById(
@@ -194,22 +191,24 @@ function setupWebcamDemo() {
 }
 
 /********************************************************************
- * Upload de vídeo demo (versão funcional)
+ * Upload de vídeo demo (solução definitiva - sempre redimensiona)
  ********************************************************************/
 function setupVideoUploadDemo() {
-  const videoUpload = document.getElementById(
-    "videoUpload"
-  ) as HTMLInputElement;
-  const uploadedVideo = document.getElementById(
-    "uploadedVideo"
-  ) as HTMLVideoElement;
-  const uploadCanvas = document.getElementById(
-    "uploadCanvas"
-  ) as HTMLCanvasElement;
+  const videoUpload = document.getElementById("videoUpload") as HTMLInputElement;
+  const uploadedVideo = document.getElementById("uploadedVideo") as HTMLVideoElement;
+  const uploadCanvas = document.getElementById("uploadCanvas") as HTMLCanvasElement;
   const uploadCtx = uploadCanvas.getContext("2d")!;
   const uploadDrawingUtils = new DrawingUtils(uploadCtx);
 
   console.log("🎬 Configurando upload de vídeo...");
+
+  // Canvas temporário para processamento
+  const tempCanvas = document.createElement('canvas');
+  const tempCtx = tempCanvas.getContext('2d')!;
+  
+  // Dimensões máximas compatíveis com MediaPipe
+  const MAX_WIDTH = 1280;
+  const MAX_HEIGHT = 720;
 
   videoUpload.addEventListener("change", handleVideoUpload);
 
@@ -222,11 +221,40 @@ function setupVideoUploadDemo() {
     uploadedVideo.src = fileURL;
     console.log("📂 Arquivo carregado:", file.name);
 
+    // Reset do canvas
+    uploadCtx.clearRect(0, 0, uploadCanvas.width, uploadCanvas.height);
+
     uploadedVideo.onloadedmetadata = async () => {
       console.log("🎞️ Metadados do vídeo carregados");
-      console.log("Vídeo dimensões:", uploadedVideo.videoWidth, uploadedVideo.videoHeight);
-      uploadCanvas.width = uploadedVideo.videoWidth;
-      uploadCanvas.height = uploadedVideo.videoHeight;
+      console.log("Vídeo dimensões originais:", uploadedVideo.videoWidth, uploadedVideo.videoHeight);
+      
+      // Calcula dimensões redimensionadas mantendo proporção
+      let processedWidth = uploadedVideo.videoWidth;
+      let processedHeight = uploadedVideo.videoHeight;
+      
+      if (processedWidth > MAX_WIDTH || processedHeight > MAX_HEIGHT) {
+        const ratio = Math.min(MAX_WIDTH / processedWidth, MAX_HEIGHT / processedHeight);
+        processedWidth = Math.floor(processedWidth * ratio);
+        processedHeight = Math.floor(processedHeight * ratio);
+        console.log(`📐 Redimensionando para processamento: ${processedWidth}x${processedHeight}`);
+      }
+      
+      // Configura canvas temporário para processamento
+      tempCanvas.width = processedWidth;
+      tempCanvas.height = processedHeight;
+      
+      // Configura canvas de exibição com dimensões originais (ou redimensionadas para exibição)
+      const displayWidth = Math.min(uploadedVideo.videoWidth, MAX_WIDTH);
+      const displayHeight = Math.min(uploadedVideo.videoHeight, MAX_HEIGHT);
+      uploadCanvas.width = displayWidth;
+      uploadCanvas.height = displayHeight;
+      
+      console.log("Canvas processamento:", tempCanvas.width, tempCanvas.height);
+      console.log("Canvas exibição:", uploadCanvas.width, uploadCanvas.height);
+
+      // Fatores de escala para converter coordenadas
+      window.scaleX = uploadCanvas.width / tempCanvas.width;
+      window.scaleY = uploadCanvas.height / tempCanvas.height;
 
       // Garante o modo "VIDEO"
       if (runningMode === "IMAGE") {
@@ -239,34 +267,40 @@ function setupVideoUploadDemo() {
       console.log("▶️ Vídeo iniciou. Iniciando loop de predição...");
       if (!uploadVideoPredicting) {
         uploadVideoPredicting = true;
-        lastTime = -1; // reset para garantir nova detecção no frame 0
+        lastUploadVideoTime = -1;
         predictUploadedVideo();
       }
     };
 
     uploadedVideo.onpause = () => {
       console.log("⏸️ Vídeo pausado");
+      uploadVideoPredicting = false;
+    };
+
+    uploadedVideo.onended = () => {
+      console.log("⏹️ Vídeo terminou");
+      uploadVideoPredicting = false;
+      uploadCtx.clearRect(0, 0, uploadCanvas.width, uploadCanvas.height);
     };
 
     uploadedVideo.onerror = (err) => {
       console.error("❌ Erro ao carregar vídeo:", err);
+      uploadVideoPredicting = false;
     };
 
-    // Reprodução automática pode ser bloqueada — o usuário pode clicar manualmente
+    // Tenta reproduzir automaticamente
     try {
       await uploadedVideo.play();
     } catch {
-      console.warn(
-        "⚠️ O navegador bloqueou o autoplay — clique no vídeo para iniciar."
-      );
+      console.warn("⚠️ O navegador bloqueou o autoplay — clique no vídeo para iniciar.");
     }
   }
 
-  let lastTime = -1;
+  let lastUploadVideoTime = -1;
   let uploadVideoPredicting = false;
 
   async function predictUploadedVideo() {
-    if (!poseLandmarker || uploadedVideo.ended) {
+    if (!poseLandmarker || !uploadVideoPredicting || uploadedVideo.ended || uploadedVideo.paused) {
       uploadVideoPredicting = false;
       return;
     }
@@ -278,28 +312,70 @@ function setupVideoUploadDemo() {
     }
 
     const now = performance.now();
-    if (uploadedVideo.currentTime !== lastTime && !uploadedVideo.paused) {
-      lastTime = uploadedVideo.currentTime;
+    
+    // Só processa se o tempo do vídeo mudou
+    if (uploadedVideo.currentTime !== lastUploadVideoTime) {
+      lastUploadVideoTime = uploadedVideo.currentTime;
 
-      poseLandmarker.detectForVideo(uploadedVideo, now, (result) => {
-        uploadCtx.clearRect(0, 0, uploadCanvas.width, uploadCanvas.height);
-        for (const landmarks of result.landmarks) {
-          uploadDrawingUtils.drawLandmarks(landmarks, {
-            radius: (data) => DrawingUtils.lerp(data.from!.z, -0.15, 0.1, 5, 1),
-          });
-          uploadDrawingUtils.drawConnectors(
-            landmarks,
-            PoseLandmarker.POSE_CONNECTIONS
-          );
-        }
-      });
+      try {
+        // 1. Desenha o frame redimensionado no canvas temporário
+        tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+        tempCtx.drawImage(uploadedVideo, 0, 0, tempCanvas.width, tempCanvas.height);
+        
+        // 2. Processa no canvas temporário (dimensões compatíveis)
+        poseLandmarker.detectForVideo(tempCanvas, now, (result) => {
+          // 3. Limpa o canvas de exibição
+          uploadCtx.clearRect(0, 0, uploadCanvas.width, uploadCanvas.height);
+          
+          // 4. Desenha os landmarks escalados para o canvas de exibição
+          if (result.landmarks && result.landmarks.length > 0) {
+            for (const landmarks of result.landmarks) {
+              // Escala os landmarks para as dimensões de exibição
+              const scaledLandmarks = landmarks.map(landmark => ({
+                ...landmark,
+                x: landmark.x * window.scaleX,
+                y: landmark.y * window.scaleY
+              }));
+              
+              uploadDrawingUtils.drawLandmarks(scaledLandmarks, {
+                radius: (data) => DrawingUtils.lerp(data.from!.z, -0.15, 0.1, 5, 1),
+              });
+              uploadDrawingUtils.drawConnectors(
+                scaledLandmarks,
+                PoseLandmarker.POSE_CONNECTIONS
+              );
+            }
+          }
+        });
+      } catch (error) {
+        console.error("Erro na detecção:", error);
+        uploadVideoPredicting = false;
+      }
     }
 
-    // Só continua se o vídeo estiver em execução
-    if (!uploadedVideo.paused && !uploadedVideo.ended) {
+    // Continua o loop se o vídeo ainda estiver rodando
+    if (uploadVideoPredicting && !uploadedVideo.paused && !uploadedVideo.ended) {
       requestAnimationFrame(predictUploadedVideo);
     } else {
       uploadVideoPredicting = false;
     }
   }
+
+  // Adiciona listeners para controles manuais
+  uploadedVideo.addEventListener('play', () => {
+    if (!uploadVideoPredicting) {
+      uploadVideoPredicting = true;
+      lastUploadVideoTime = -1;
+      predictUploadedVideo();
+    }
+  });
+
+  uploadedVideo.addEventListener('pause', () => {
+    uploadVideoPredicting = false;
+  });
+
+  uploadedVideo.addEventListener('seeked', () => {
+    // Quando o usuário busca para um ponto diferente no vídeo
+    lastUploadVideoTime = -1;
+  });
 }
