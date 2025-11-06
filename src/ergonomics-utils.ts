@@ -696,13 +696,14 @@ export const initialRebaData: RebaData = {
  * @param newAngles Ângulos calculados mais recentes.
  * @param currentTime Tempo atual em milissegundos (performance.now()).
  * @param deltaTime Tempo decorrido desde a última atualização em segundos.
+ * @param landmarks Landmarks atuais usados para cálculos específicos (como pernas).
  * @returns Dados REBA atualizados.
  */
-export function updateRebaData(rebaData: RebaData, newAngles: ReturnType<typeof analyzeErgonomics>, currentTime: number, deltaTime: number): RebaData {
+export function updateRebaData(rebaData: RebaData, newAngles: ReturnType<typeof analyzeErgonomics>, currentTime: number, deltaTime: number, landmarks: NormalizedLandmark[]): RebaData {
     const updatedData = { ...rebaData };
 
     // Função auxiliar para atualizar um componente
-    const updateComponent = (componentKey: keyof RebaData, newAngle: number | null, landmarks: NormalizedLandmark[]) => {
+    const updateComponent = (componentKey: keyof RebaData, newAngle: number | null) => {
         const component = updatedData[componentKey];
         if (newAngle === null) {
             // Se o ângulo não for detectado, mantém os dados anteriores
@@ -730,7 +731,7 @@ export function updateRebaData(rebaData: RebaData, newAngles: ReturnType<typeof 
         // Determina a faixa de ângulo atual
         let bin = "";
         if (componentKey === 'legs') {
-            // Para pernas, usa a função específica
+            // Para pernas, usa a função específica e os landmarks
             bin = getLegsBin(
                 landmarks[23], // LEFT_HIP
                 landmarks[24], // RIGHT_HIP
@@ -766,29 +767,29 @@ export function updateRebaData(rebaData: RebaData, newAngles: ReturnType<typeof 
         return { ...component };
     };
 
-    updatedData.trunk = updateComponent('trunk', newAngles.trunkAngle, landmarks);
-    updatedData.neck = updateComponent('neck', newAngles.neckAngle, landmarks);
+    updatedData.trunk = updateComponent('trunk', newAngles.trunkAngle);
+    updatedData.neck = updateComponent('neck', newAngles.neckAngle);
     // Para pernas, braço, antebraço e punho, vamos usar a média dos lados direito e esquerdo detectados
     // ou o primeiro disponível detectado.
     const avgLegAngle = (newAngles.leftLegAngle !== null && newAngles.rightLegAngle !== null) ?
         (Math.abs(newAngles.leftLegAngle) + Math.abs(newAngles.rightLegAngle)) / 2 : // Média dos absolutos
         (newAngles.leftLegAngle !== null ? Math.abs(newAngles.leftLegAngle) : (newAngles.rightLegAngle !== null ? Math.abs(newAngles.rightLegAngle) : null));
-    updatedData.legs = updateComponent('legs', avgLegAngle, landmarks);
+    updatedData.legs = updateComponent('legs', avgLegAngle);
 
     const avgArmAngle = (newAngles.leftArmAngle !== null && newAngles.rightArmAngle !== null) ?
         (Math.abs(newAngles.leftArmAngle) + Math.abs(newAngles.rightArmAngle)) / 2 :
         (newAngles.leftArmAngle !== null ? Math.abs(newAngles.leftArmAngle) : (newAngles.rightArmAngle !== null ? Math.abs(newAngles.rightArmAngle) : null));
-    updatedData.arm = updateComponent('arm', avgArmAngle, landmarks);
+    updatedData.arm = updateComponent('arm', avgArmAngle);
 
     const avgForearmAngle = (newAngles.leftForearmAngle !== null && newAngles.rightForearmAngle !== null) ?
         (Math.abs(newAngles.leftForearmAngle) + Math.abs(newAngles.rightForearmAngle)) / 2 :
         (newAngles.leftForearmAngle !== null ? Math.abs(newAngles.leftForearmAngle) : (newAngles.rightForearmAngle !== null ? Math.abs(newAngles.rightForearmAngle) : null));
-    updatedData.forearm = updateComponent('forearm', avgForearmAngle, landmarks);
+    updatedData.forearm = updateComponent('forearm', avgForearmAngle);
 
     const avgWristAngle = (newAngles.leftWristAngle !== null && newAngles.rightWristAngle !== null) ?
         (Math.abs(newAngles.leftWristAngle) + Math.abs(newAngles.rightWristAngle)) / 2 :
         (newAngles.leftWristAngle !== null ? Math.abs(newAngles.leftWristAngle) : (newAngles.rightWristAngle !== null ? Math.abs(newAngles.rightWristAngle) : null));
-    updatedData.wrist = updateComponent('wrist', avgWristAngle, landmarks);
+    updatedData.wrist = updateComponent('wrist', avgWristAngle);
 
     return updatedData;
 }

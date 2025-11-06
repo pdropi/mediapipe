@@ -183,8 +183,8 @@ function setupVideoUpload() {
             // 🆕 1. Cálculo dos ângulos ergonômicos (básicos)
             const currentAngles = analyzeErgonomics(landmarks);
 
-            // 🆕 2. Atualiza os dados REBA
-            currentRebaData = updateRebaData(currentRebaData, currentAngles, now, deltaTime);
+            // 🆕 2. Atualiza os dados REBA - Agora passa os landmarks
+            currentRebaData = updateRebaData(currentRebaData, currentAngles, now, deltaTime, landmarks);
 
             // 🆕 3. Exibição dos dados REBA formatados (Apenas para a primeira pose)
             if (angleDisplay) {
