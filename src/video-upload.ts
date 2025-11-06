@@ -1,220 +1,388 @@
 // src/video-upload.ts
 
 import {
-  PoseLandmarker,
-  FilesetResolver,
-  DrawingUtils,
-  PoseLandmarkerResult,
-  NormalizedLandmark,
+  PoseLandmarker,
+  FilesetResolver,
+  DrawingUtils,
+  PoseLandmarkerResult,
+  NormalizedLandmark,
 } from "https://cdn.skypack.dev/@mediapipe/tasks-vision@0.10.0";
 
-// Importa o novo utilitário. Vite resolverá a extensão .ts.
-import { analyzeErgonomics } from "./ergonomics-utils.ts"; 
+// Importa os utilitários e dados REBA. Vite resolverá a extensão .ts.
+import { analyzeErgonomics, updateRebaData, initialRebaData, RebaData } from "./ergonomics-utils.ts"; 
 
 const demosSection = document.getElementById("demos");
 let poseLandmarker: PoseLandmarker = undefined;
-let angleDisplay: HTMLParagraphElement; // Elemento para exibir o ângulo
+let angleDisplay: HTMLParagraphElement; // Elemento para exibir os dados REBA
 
 const createPoseLandmarker = async () => {
-  const vision = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
-  );
-  poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-    baseOptions: {
-      modelAssetPath: `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task`,
-      delegate: "GPU",
-    },
-    runningMode: "VIDEO",
-    numPoses: 2,
-  });
-  demosSection.classList.remove("invisible");
-  console.log("✅ PoseLandmarker loaded for video upload");
-  
-  // 🆕 Cria e anexa o elemento de exibição do ângulo (Painel)
-  angleDisplay = document.createElement('p');
-  angleDisplay.id = 'angleDisplay';
-  angleDisplay.style.cssText = 'position: absolute; top: 10px; right: 10px; color: white; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 5px; z-index: 10; font-weight: bold; font-family: monospace;';
-  const videoContainer = document.getElementById("uploadedVideoContainer");
-  if (videoContainer) videoContainer.appendChild(angleDisplay);
+  const vision = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
+  );
+  poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task`,
+      delegate: "GPU",
+    },
+    runningMode: "VIDEO",
+    numPoses: 2,
+  });
+  demosSection.classList.remove("invisible");
+  console.log("✅ PoseLandmarker loaded for video upload");
+  
+  // 🆕 Cria e anexa o elemento de exibição dos dados REBA (Painel)
+  angleDisplay = document.createElement('p');
+  angleDisplay.id = 'angleDisplay';
+  angleDisplay.style.cssText = 'position: absolute; top: 10px; left: 10px; color: white; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 5px; z-index: 10; font-weight: bold; font-family: monospace; font-size: 14px; line-height: 1.4; max-width: 400px; white-space: pre-line;'; // Adicionado max-width, ajustes de estilo e quebra de linha
+  const videoContainer = document.getElementById("uploadedVideoContainer");
+  if (videoContainer) videoContainer.appendChild(angleDisplay);
 
-  setupVideoUpload();
+  setupVideoUpload();
 };
 createPoseLandmarker();
 
 function setupVideoUpload() {
-  const videoUpload = document.getElementById("videoUpload") as HTMLInputElement;
-  const uploadedVideo = document.getElementById("uploadedVideo") as HTMLVideoElement;
-  const uploadCanvas = document.getElementById("uploadCanvas") as HTMLCanvasElement;
-  const uploadCtx = uploadCanvas.getContext("2d")!;
-  const uploadDrawingUtils = new DrawingUtils(uploadCtx);
+  const videoUpload = document.getElementById("videoUpload") as HTMLInputElement;
+  const uploadedVideo = document.getElementById("uploadedVideo") as HTMLVideoElement;
+  const uploadCanvas = document.getElementById("uploadCanvas") as HTMLCanvasElement;
+  const uploadCtx = uploadCanvas.getContext("2d")!;
+  const uploadDrawingUtils = new DrawingUtils(uploadCtx);
 
-  // Canvas temporário para processamento
-  const tempCanvas = document.createElement('canvas');
-  const tempCtx = tempCanvas.getContext('2d')!;
-  
-  // Dimensões máximas compatíveis
-  const MAX_WIDTH = 1280;
-  const MAX_HEIGHT = 720;
+  // Canvas temporário para processamento
+  const tempCanvas = document.createElement('canvas');
+  const tempCtx = tempCanvas.getContext('2d')!;
+  
+  // Dimensões máximas compatíveis
+  const MAX_WIDTH = 1280;
+  const MAX_HEIGHT = 720;
 
-  let uploadVideoPredicting = false;
-  let lastUploadVideoTime = -1;
+  let uploadVideoPredicting = false;
+  let lastUploadVideoTime = -1;
+  let lastTimestamp = performance.now(); // Para calcular deltaTime
 
-  videoUpload.addEventListener("change", handleVideoUpload);
+  // 🆕 Armazena os dados REBA
+  let currentRebaData: RebaData = initialRebaData;
 
-  async function handleVideoUpload(event: Event) {
-    const input = event.target as HTMLInputElement;
-    if (!input.files || input.files.length === 0) return;
+  videoUpload.addEventListener("change", handleVideoUpload);
 
-    const file = input.files[0];
-    const fileURL = URL.createObjectURL(file);
-    uploadedVideo.src = fileURL;
-    console.log("📂 File loaded:", file.name);
+  async function handleVideoUpload(event: Event) {
+    const input = event.target as HTMLInputElement;
+    if (!input.files || input.files.length === 0) return;
 
-    // Reset canvas
-    uploadCtx.clearRect(0, 0, uploadCanvas.width, uploadCanvas.height);
-    uploadVideoPredicting = false;
-    if (angleDisplay) angleDisplay.textContent = 'Aguardando vídeo...';
+    const file = input.files[0];
+    const fileURL = URL.createObjectURL(file);
+    uploadedVideo.src = fileURL;
+    console.log("📂 File loaded:", file.name);
 
-    uploadedVideo.onloadedmetadata = () => {
-      console.log("🎞️ Video metadata loaded");
-      console.log("Original video dimensions:", uploadedVideo.videoWidth, uploadedVideo.videoHeight);
-      
-      // Calcula dimensões para processamento
-      let processedWidth = uploadedVideo.videoWidth;
-      let processedHeight = uploadedVideo.videoHeight;
-      
-      if (processedWidth > MAX_WIDTH || processedHeight > MAX_HEIGHT) {
-        const ratio = Math.min(MAX_WIDTH / processedWidth, MAX_HEIGHT / processedHeight);
-        processedWidth = Math.floor(processedWidth * ratio);
-        processedHeight = Math.floor(processedHeight * ratio);
-        console.log(`📐 Resizing for processing: ${processedWidth}x${processedHeight}`);
-      }
-      
-      // Configura canvas temporário
-      tempCanvas.width = processedWidth;
-      tempCanvas.height = processedHeight;
-      
-      // Configura canvas de exibição mantendo proporção original
-      const displayRatio = Math.min(MAX_WIDTH / uploadedVideo.videoWidth, MAX_HEIGHT / uploadedVideo.videoHeight);
-      const displayWidth = Math.floor(uploadedVideo.videoWidth * displayRatio);
-      const displayHeight = Math.floor(uploadedVideo.videoHeight * displayRatio);
-      
-      uploadCanvas.width = displayWidth;
-      uploadCanvas.height = displayHeight;
-      
-      console.log("Processing canvas:", tempCanvas.width, tempCanvas.height);
-      console.log("Display canvas:", uploadCanvas.width, uploadCanvas.height);
+    // Reset canvas
+    uploadCtx.clearRect(0, 0, uploadCanvas.width, uploadCanvas.height);
+    uploadVideoPredicting = false;
+    if (angleDisplay) angleDisplay.textContent = 'Aguardando vídeo...';
 
-      // Fatores de escala (globais para acesso fácil)
-      (window as any).scaleX = uploadCanvas.width / tempCanvas.width;
-      (window as any).scaleY = uploadCanvas.height / tempCanvas.height;
-    };
+    // 🆕 Reset dados REBA
+    currentRebaData = initialRebaData;
 
-    uploadedVideo.onplay = () => {
-      console.log("▶️ Video started. Starting prediction loop...");
-      if (!uploadVideoPredicting) {
-        uploadVideoPredicting = true;
-        lastUploadVideoTime = -1;
-        predictUploadedVideo();
-      }
-    };
+    uploadedVideo.onloadedmetadata = () => {
+      console.log("🎞️ Video metadata loaded");
+      console.log("Original video dimensions:", uploadedVideo.videoWidth, uploadedVideo.videoHeight);
+      
+      // Calcula dimensões para processamento
+      let processedWidth = uploadedVideo.videoWidth;
+      let processedHeight = uploadedVideo.videoHeight;
+      
+      if (processedWidth > MAX_WIDTH || processedHeight > MAX_HEIGHT) {
+        const ratio = Math.min(MAX_WIDTH / processedWidth, MAX_HEIGHT / processedHeight);
+        processedWidth = Math.floor(processedWidth * ratio);
+        processedHeight = Math.floor(processedHeight * ratio);
+        console.log(`📐 Resizing for processing: ${processedWidth}x${processedHeight}`);
+      }
+      
+      // Configura canvas temporário
+      tempCanvas.width = processedWidth;
+      tempCanvas.height = processedHeight;
+      
+      // Configura canvas de exibição mantendo proporção original
+      const displayRatio = Math.min(MAX_WIDTH / uploadedVideo.videoWidth, MAX_HEIGHT / uploadedVideo.videoHeight);
+      const displayWidth = Math.floor(uploadedVideo.videoWidth * displayRatio);
+      const displayHeight = Math.floor(uploadedVideo.videoHeight * displayRatio);
+      
+      uploadCanvas.width = displayWidth;
+      uploadCanvas.height = displayHeight;
+      
+      console.log("Processing canvas:", tempCanvas.width, tempCanvas.height);
+      console.log("Display canvas:", uploadCanvas.width, uploadCanvas.height);
 
-    uploadedVideo.onpause = () => {
-      console.log("⏸️ Video paused");
-      uploadVideoPredicting = false;
-    };
+      // Fatores de escala (globais para acesso fácil)
+      (window as any).scaleX = uploadCanvas.width / tempCanvas.width;
+      (window as any).scaleY = uploadCanvas.height / tempCanvas.height;
+    };
 
-    uploadedVideo.onended = () => {
-      console.log("⏹️ Video ended");
-      uploadVideoPredicting = false;
-      uploadCtx.clearRect(0, 0, uploadCanvas.width, uploadCanvas.height);
-      if (angleDisplay) angleDisplay.textContent = 'Análise concluída.';
-    };
+    uploadedVideo.onplay = () => {
+      console.log("▶️ Video started. Starting prediction loop...");
+      if (!uploadVideoPredicting) {
+        uploadVideoPredicting = true;
+        lastUploadVideoTime = -1;
+        lastTimestamp = performance.now(); // Reinicia o timestamp
+        predictUploadedVideo();
+      }
+    };
 
-    uploadedVideo.onerror = (err) => {
-      console.error("❌ Video error:", err);
-      uploadVideoPredicting = false;
-    };
-  }
+    uploadedVideo.onpause = () => {
+      console.log("⏸️ Video paused");
+      uploadVideoPredicting = false;
+    };
 
-  async function predictUploadedVideo() {
-    if (!poseLandmarker || !uploadVideoPredicting || uploadedVideo.ended || uploadedVideo.paused) {
-      uploadVideoPredicting = false;
-      return;
-    }
+    uploadedVideo.onended = () => {
+      console.log("⏹️ Video ended");
+      uploadVideoPredicting = false;
+      uploadCtx.clearRect(0, 0, uploadCanvas.width, uploadCanvas.height);
+      if (angleDisplay) {
+          // Exibe o resumo final ao terminar
+          let finalText = "Análise Concluída - Resumo Final:\n";
+          finalText += `Tronco - Pontuação: ${currentRebaData.trunk.score}, Tempo: ${currentRebaData.trunk.exposureTime.toFixed(1)}s\n`;
+          finalText += `Pescoço - Pontuação: ${currentRebaData.neck.score}, Tempo: ${currentRebaData.neck.exposureTime.toFixed(1)}s\n`;
+          finalText += `Pernas - Pontuação: ${currentRebaData.legs.score}, Tempo: ${currentRebaData.legs.exposureTime.toFixed(1)}s\n`;
+          finalText += `Braço - Pontuação: ${currentRebaData.arm.score}, Tempo: ${currentRebaData.arm.exposureTime.toFixed(1)}s\n`;
+          finalText += `Antebraço - Pontuação: ${currentRebaData.forearm.score}, Tempo: ${currentRebaData.forearm.exposureTime.toFixed(1)}s\n`;
+          finalText += `Punho - Pontuação: ${currentRebaData.wrist.score}, Tempo: ${currentRebaData.wrist.exposureTime.toFixed(1)}s\n`;
+          angleDisplay.textContent = finalText;
+      }
+    };
 
-    const now = performance.now();
-    
-    if (uploadedVideo.currentTime !== lastUploadVideoTime) {
-      lastUploadVideoTime = uploadedVideo.currentTime;
+    uploadedVideo.onerror = (err) => {
+      console.error("❌ Video error:", err);
+      uploadVideoPredicting = false;
+    };
+  }
 
-      try {
-        // Processa no canvas temporário
-        tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
-        tempCtx.drawImage(uploadedVideo, 0, 0, tempCanvas.width, tempCanvas.height);
-        
-        poseLandmarker.detectForVideo(tempCanvas, now, (result: PoseLandmarkerResult) => {
-          uploadCtx.clearRect(0, 0, uploadCanvas.width, uploadCanvas.height);
-          
-          if (result.landmarks && result.landmarks.length > 0) {
-            // Assumimos a primeira pose como a principal
-            const landmarks: NormalizedLandmark[] = result.landmarks[0];
+  async function predictUploadedVideo() {
+    if (!poseLandmarker || !uploadVideoPredicting || uploadedVideo.ended || uploadedVideo.paused) {
+      uploadVideoPredicting = false;
+      return;
+    }
+
+    const now = performance.now();
+    const deltaTime = (now - lastTimestamp) / 1000; // Converte para segundos
+    lastTimestamp = now; // Atualiza o timestamp para a próxima iteração
+    
+    if (uploadedVideo.currentTime !== lastUploadVideoTime) {
+      lastUploadVideoTime = uploadedVideo.currentTime;
+
+      try {
+        // Processa no canvas temporário
+        tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+        tempCtx.drawImage(uploadedVideo, 0, 0, tempCanvas.width, tempCanvas.height);
+        
+        poseLandmarker.detectForVideo(tempCanvas, now, (result: PoseLandmarkerResult) => {
+          uploadCtx.clearRect(0, 0, uploadCanvas.width, uploadCanvas.height);
+          
+          if (result.landmarks && result.landmarks.length > 0) {
+            // Assumimos a primeira pose como a principal
+            const landmarks: NormalizedLandmark[] = result.landmarks[0];
             
-            // 🆕 1. Cálculo do ângulo cervical
-            const { neckAngle } = analyzeErgonomics(landmarks);
+            // 🆕 1. Cálculo dos ângulos ergonômicos (básicos)
+            const currentAngles = analyzeErgonomics(landmarks);
 
-            // 🆕 2. Exibição do ângulo (Apenas para a primeira pose)
+            // 🆕 2. Atualiza os dados REBA
+            currentRebaData = updateRebaData(currentRebaData, currentAngles, now, deltaTime);
+
+            // 🆕 3. Exibição dos dados REBA formatados (Apenas para a primeira pose)
             if (angleDisplay) {
-                if (neckAngle !== null) {
-                    const formattedAngle = neckAngle.toFixed(2);
-                    // O ângulo é o desvio em relação ao vertical. 0° é ERETO.
-                    angleDisplay.textContent = `Ângulo Cervical: ${formattedAngle}°`;
-
-                    // Feedback Ergonômico: Flexão excessiva (e.g., desvio > 10 graus)
-                    const MAX_SAFE_DEVIATION = 15; // Exemplo: 15 graus de desvio
-                    
-                    if (Math.abs(neckAngle) > MAX_SAFE_DEVIATION) {
-                        angleDisplay.style.color = 'red';
-                    } else if (Math.abs(neckAngle) > 8) {
-                        angleDisplay.style.color = 'yellow';
-                    } else {
-                        angleDisplay.style.color = 'lime';
-                    }
+                let displayText = "";
+                // Formatação conforme o exemplo fornecido, adicionando a pontuação
+                if (currentRebaData.trunk.angle !== null) {
+                    displayText += `Tronco\nÂngulo: ${currentRebaData.trunk.angle.toFixed(1)}°\nTempo de exposição: ${currentRebaData.trunk.exposureTime.toFixed(1)}s\nFrequência: ${currentRebaData.trunk.frequency.toFixed(1)}/min\nPontuação: ${currentRebaData.trunk.score}\n\n`;
                 } else {
-                    angleDisplay.textContent = 'Ângulo Cervical: Não detectado';
-                    angleDisplay.style.color = 'white';
+                    displayText += `Tronco\nÂngulo: Não detectado\nTempo de exposição: ${currentRebaData.trunk.exposureTime.toFixed(1)}s\nFrequência: ${currentRebaData.trunk.frequency.toFixed(1)}/min\nPontuação: ${currentRebaData.trunk.score}\n\n`;
                 }
+
+                if (currentRebaData.neck.angle !== null) {
+                    displayText += `Pescoço\nÂngulo: ${currentRebaData.neck.angle.toFixed(1)}°\nTempo de exposição: ${currentRebaData.neck.exposureTime.toFixed(1)}s\nFrequência: ${currentRebaData.neck.frequency.toFixed(1)}/min\nPontuação: ${currentRebaData.neck.score}\n\n`;
+                } else {
+                    displayText += `Pescoço\nÂngulo: Não detectado\nTempo de exposição: ${currentRebaData.neck.exposureTime.toFixed(1)}s\nFrequência: ${currentRebaData.neck.frequency.toFixed(1)}/min\nPontuação: ${currentRebaData.neck.score}\n\n`;
+                }
+
+                if (currentRebaData.legs.angle !== null) {
+                    displayText += `Pernas\nÂngulo: ${currentRebaData.legs.angle.toFixed(1)}°\nTempo de exposição: ${currentRebaData.legs.exposureTime.toFixed(1)}s\nFrequência: ${currentRebaData.legs.frequency.toFixed(1)}/min\nPontuação: ${currentRebaData.legs.score}\n\n`;
+                } else {
+                    displayText += `Pernas\nÂngulo: Não detectado\nTempo de exposição: ${currentRebaData.legs.exposureTime.toFixed(1)}s\nFrequência: ${currentRebaData.legs.frequency.toFixed(1)}/min\nPontuação: ${currentRebaData.legs.score}\n\n`;
+                }
+
+                if (currentRebaData.arm.angle !== null) {
+                    displayText += `Braço\nÂngulo: ${currentRebaData.arm.angle.toFixed(1)}°\nTempo de exposição: ${currentRebaData.arm.exposureTime.toFixed(1)}s\nFrequência: ${currentRebaData.arm.frequency.toFixed(1)}/min\nPontuação: ${currentRebaData.arm.score}\n\n`;
+                } else {
+                    displayText += `Braço\nÂngulo: Não detectado\nTempo de exposição: ${currentRebaData.arm.exposureTime.toFixed(1)}s\nFrequência: ${currentRebaData.arm.frequency.toFixed(1)}/min\nPontuação: ${currentRebaData.arm.score}\n\n`;
+                }
+
+                if (currentRebaData.forearm.angle !== null) {
+                    displayText += `Antebraço\nÂngulo: ${currentRebaData.forearm.angle.toFixed(1)}°\nTempo de exposição: ${currentRebaData.forearm.exposureTime.toFixed(1)}s\nFrequência: ${currentRebaData.forearm.frequency.toFixed(1)}/min\nPontuação: ${currentRebaData.forearm.score}\n\n`;
+                } else {
+                    displayText += `Antebraço\nÂngulo: Não detectado\nTempo de exposição: ${currentRebaData.forearm.exposureTime.toFixed(1)}s\nFrequência: ${currentRebaData.forearm.frequency.toFixed(1)}/min\nPontuação: ${currentRebaData.forearm.score}\n\n`;
+                }
+
+                if (currentRebaData.wrist.angle !== null) {
+                    displayText += `Punho\nÂngulo: ${currentRebaData.wrist.angle.toFixed(1)}°\nTempo de exposição: ${currentRebaData.wrist.exposureTime.toFixed(1)}s\nFrequência: ${currentRebaData.wrist.frequency.toFixed(1)}/min\nPontuação: ${currentRebaData.wrist.score}\n\n`;
+                } else {
+                    displayText += `Punho\nÂngulo: Não detectado\nTempo de exposição: ${currentRebaData.wrist.exposureTime.toFixed(1)}s\nFrequência: ${currentRebaData.wrist.frequency.toFixed(1)}/min\nPontuação: ${currentRebaData.wrist.score}\n\n`;
+                }
+
+                // Remove a última quebra de linha extra
+                displayText = displayText.trimEnd();
+
+                angleDisplay.textContent = displayText;
+
+                // Feedback Ergonômico Básico (opcional) - pode ser aplicado ao texto ou a um elemento separado
+                // Exemplo para o pescoço e tronco (mantido para compatibilidade visual anterior, se necessário)
+                const MAX_NECK_ANGLE = 25; // Exemplo: 25 graus
+                const MAX_TRUNK_ANGLE = 10; // Exemplo: 10 graus
+
+                let displayColor = 'white'; // Padrão: informação
+                if ((currentRebaData.neck.angle !== null && Math.abs(currentRebaData.neck.angle) > MAX_NECK_ANGLE) || 
+                    (currentRebaData.trunk.angle !== null && Math.abs(currentRebaData.trunk.angle) > MAX_TRUNK_ANGLE)) {
+                    displayColor = 'red'; // Ruim
+                } else if ((currentRebaData.neck.angle !== null && Math.abs(currentRebaData.neck.angle) > MAX_NECK_ANGLE * 0.7) || // Ajuste para "alerta"
+                           (currentRebaData.trunk.angle !== null && Math.abs(currentRebaData.trunk.angle) > MAX_TRUNK_ANGLE * 0.7)) {
+                    displayColor = 'yellow'; // Alerta
+                }
+                // angleDisplay.style.color = displayColor; // Comentado para manter a cor padrão do texto
             }
 
 
-            // 3. Desenho dos Landmarks e Conexões
-              // Escala os landmarks
-              const scaledLandmarks = landmarks.map(landmark => ({
-                ...landmark,
-                // Usa o fator de escala definido no onloadedmetadata
-                x: landmark.x * (window as any).scaleX,
-                y: landmark.y * (window as any).scaleY
-              }));
-              
-              uploadDrawingUtils.drawLandmarks(scaledLandmarks, {
-                radius: (data) => DrawingUtils.lerp(data.from!.z, -0.15, 0.1, 5, 1),
-              });
-              uploadDrawingUtils.drawConnectors(
-                scaledLandmarks,
-                PoseLandmarker.POSE_CONNECTIONS
-              );
-            }
-        });
-      } catch (error) {
-        console.error("Detection error:", error);
-        uploadVideoPredicting = false;
-      }
-    }
+            // --- Desenho DAS LINHAS ERGONÔMICAS PRIMEIRO (para garantir visibilidade) ---
 
-    if (uploadVideoPredicting && !uploadedVideo.paused && !uploadedVideo.ended) {
-      requestAnimationFrame(predictUploadedVideo);
-    } else {
-      uploadVideoPredicting = false;
-    }
-  }
+            // Índices dos landmarks
+            const LEFT_SHOULDER = 11;
+            const RIGHT_SHOULDER = 12;
+            const LEFT_EAR = 7;
+            const RIGHT_EAR = 8;
+            const NOSE = 0;
+            const LEFT_HIP = 23;
+            const RIGHT_HIP = 24;
+
+            // Função auxiliar para obter coordenadas escalonadas de um landmark, se detectado
+            const getLandmarkPoint = (index: number) => {
+                if (index < landmarks.length) {
+                    const lm = landmarks[index];
+                    // Verifica se o landmark foi detectado (x, y são números válidos)
+                    if (typeof lm.x === 'number' && typeof lm.y === 'number' && !isNaN(lm.x) && !isNaN(lm.y)) {
+                        return { x: lm.x * (window as any).scaleX, y: lm.y * (window as any).scaleY };
+                    }
+                }
+                return null;
+            };
+
+            // Função para desenhar uma linha entre dois pontos com cor específica e espessura
+            const drawLine = (p1: {x: number, y: number} | null, p2: {x: number, y: number} | null, color: string, width: number = 3) => {
+                if (p1 && p2) {
+                    uploadCtx.beginPath();
+                    uploadCtx.moveTo(p1.x, p1.y);
+                    uploadCtx.lineTo(p2.x, p2.y);
+                    uploadCtx.strokeStyle = color;
+                    uploadCtx.lineWidth = width;
+                    uploadCtx.stroke();
+                }
+            };
+
+            // Função para desenhar um círculo em um ponto com cor específica
+            const drawPoint = (point: {x: number, y: number} | null, color: string, radius: number = 5) => {
+                if (point) {
+                    uploadCtx.beginPath();
+                    uploadCtx.arc(point.x, point.y, radius, 0, 2 * Math.PI);
+                    uploadCtx.fillStyle = color;
+                    uploadCtx.fill();
+                }
+            };
+
+            // --- Desenho do Pescoço (Linha entre ombro e cabeça) ---
+            // Encontra a referência da cabeça (mesma lógica de analyzeErgonomics)
+            const leftEarPoint = getLandmarkPoint(LEFT_EAR);
+            const rightEarPoint = getLandmarkPoint(RIGHT_EAR);
+            const nosePoint = getLandmarkPoint(NOSE);
+
+            let headRefPoint: {x: number, y: number} | null = null;
+            const leftEarVis = leftEarPoint ? landmarks[LEFT_EAR].visibility || 0 : 0;
+            const rightEarVis = rightEarPoint ? landmarks[RIGHT_EAR].visibility || 0 : 0;
+            const noseVis = nosePoint ? landmarks[NOSE].visibility || 0 : 0;
+
+            // Prioridade: Orelha com maior visibilidade, depois nariz
+            if (leftEarVis >= rightEarVis && leftEarVis >= noseVis && leftEarPoint) {
+                headRefPoint = leftEarPoint;
+            } else if (rightEarVis >= leftEarVis && rightEarVis >= noseVis && rightEarPoint) {
+                headRefPoint = rightEarPoint;
+            } else if (noseVis > leftEarVis && noseVis > rightEarVis && nosePoint) {
+                headRefPoint = nosePoint;
+            }
+
+            const leftShoulderPoint = getLandmarkPoint(LEFT_SHOULDER);
+            const rightShoulderPoint = getLandmarkPoint(RIGHT_SHOULDER);
+            const midShoulderPoint = leftShoulderPoint && rightShoulderPoint ?
+                { x: (leftShoulderPoint.x + rightShoulderPoint.x) / 2, y: (leftShoulderPoint.y + rightShoulderPoint.y) / 2 } : null;
+
+            if (headRefPoint && midShoulderPoint) {
+                let neckLineColor = 'lime'; // Padrão
+                if (currentRebaData.neck.angle !== null && Math.abs(currentRebaData.neck.angle) > 25) neckLineColor = 'red';
+                else if (currentRebaData.neck.angle !== null && Math.abs(currentRebaData.neck.angle) > 15) neckLineColor = 'yellow';
+                drawLine(midShoulderPoint, headRefPoint, neckLineColor, 4); // Linha mais grossa
+            }
+
+            // --- Desenho do Tronco (Linha entre quadril e ombro) ---
+            const leftHipPoint = getLandmarkPoint(LEFT_HIP);
+            const rightHipPoint = getLandmarkPoint(RIGHT_HIP);
+            const midHipPoint = leftHipPoint && rightHipPoint ?
+                { x: (leftHipPoint.x + rightHipPoint.x) / 2, y: (leftHipPoint.y + rightHipPoint.y) / 2 } : null;
+
+            if (midShoulderPoint && midHipPoint) {
+                let trunkLineColor = 'lime'; // Padrão
+                if (currentRebaData.trunk.angle !== null && Math.abs(currentRebaData.trunk.angle) > 10) trunkLineColor = 'red';
+                else if (currentRebaData.trunk.angle !== null && Math.abs(currentRebaData.trunk.angle) > 5) trunkLineColor = 'yellow';
+                drawLine(midHipPoint, midShoulderPoint, trunkLineColor, 4); // Linha mais grossa
+            }
+
+            // --- Desenho dos Landmarks e Conexões (do MediaPipe) DEPOIS ---
+            // Escala os landmarks
+            const scaledLandmarks = landmarks.map(landmark => ({
+              ...landmark,
+              // Usa o fator de escala definido no onloadedmetadata
+              x: landmark.x * (window as any).scaleX,
+              y: landmark.y * (window as any).scaleY
+            }));
+            
+            // Desenha as conexões padrão do MediaPipe (sobrepostas pelas linhas ergonômicas)
+            uploadDrawingUtils.drawConnectors(
+              scaledLandmarks,
+              PoseLandmarker.POSE_CONNECTIONS
+            );
+            // Desenha os pontos padrão do MediaPipe (sobrepostos pelos pontos ergonômicos)
+            uploadDrawingUtils.drawLandmarks(scaledLandmarks, {
+              radius: (data) => DrawingUtils.lerp(data.from!.z, -0.15, 0.1, 5, 1),
+            });
+
+            // --- Desenho de Pontos Adicionais (Opcional) POR ÚLTIMO ---
+            // Desenha círculos nos pontos usados para os cálculos, com cores baseadas no status
+            // Ponto do meio dos ombros (base do pescoço)
+            if (midShoulderPoint) {
+                drawPoint(midShoulderPoint, 'white', 6); // Um pouco maior
+            }
+            // Ponto do meio dos quadris
+            if (midHipPoint) {
+                drawPoint(midHipPoint, 'yellow', 6); // Um pouco maior
+            }
+            // Ponto da cabeça (referência usada)
+            if (headRefPoint) {
+                drawPoint(headRefPoint, 'white', 6); // Um pouco maior
+            }
+            }
+        });
+      } catch (error) {
+        console.error("Detection error:", error);
+        uploadVideoPredicting = false;
+      }
+    }
+
+    if (uploadVideoPredicting && !uploadedVideo.paused && !uploadedVideo.ended) {
+      requestAnimationFrame(predictUploadedVideo);
+    } else {
+      uploadVideoPredicting = false;
+    }
+  }
 }
