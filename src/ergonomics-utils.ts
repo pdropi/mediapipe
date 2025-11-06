@@ -9,8 +9,8 @@ interface Point {
 }
 
 /**
- * Calcula o ponto médio (centro) entre os dois ombros.
- * Este ponto é usado para estimar a base do pescoço (T1/C7).
+ * Calcula o ponto médio (centro) entre os dois ombros,
+ * que estima a base do pescoço (C7/T1).
  * @param leftShoulder Marco do ombro esquerdo.
  * @param rightShoulder Marco do ombro direito.
  * @returns Um objeto Point com as coordenadas X e Y do centro do ombro.
@@ -26,69 +26,96 @@ function getMidShoulder(
 
 /**
  * Calcula o ângulo de inclinação do pescoço em relação à vertical (90 graus).
- * Usamos a Orelha (ponto de referência da cabeça) e o Centro do Ombro (base do pescoço)
+ * Usamos a Orelha (ponto da cabeça) e o Centro do Ombro (base do pescoço)
  * para definir o vetor do pescoço.
- * @param ear Marco da orelha (preferencialmente a mais visível, aqui usaremos a esquerda como exemplo).
+ * @param ear Marco da orelha (ponto superior da cabeça).
  * @param midShoulder Ponto central entre os dois ombros.
- * @returns O ângulo em graus (de 0 a 180), onde 90 graus é a postura vertical ideal.
+ * @returns O ângulo em graus, onde ~90 graus é a postura vertical ideal.
+ * Ângulos menores que 90 indicam flexão (cabeça para frente).
  */
 export function calculateNeckAngle(
     ear: NormalizedLandmark,
     midShoulder: Point
 ): number {
-    // 1. Calcula a diferença (vetor) entre a orelha e o centro do ombro
+    // Calcula a diferença (vetor) entre a orelha e o centro do ombro
     const deltaX = ear.x - midShoulder.x;
     const deltaY = ear.y - midShoulder.y;
 
-    // 2. Usa a função atan2 para encontrar o ângulo em radianos entre o vetor e o eixo X
-    // Atenção: O eixo Y no canvas/coordenadas de imagem é invertido (cresce para baixo).
+    // Usa a função atan2 para encontrar o ângulo em radianos.
+    // O ângulo é medido no sentido anti-horário a partir do eixo X positivo.
     const angleRad = Math.atan2(deltaY, deltaX);
 
-    // 3. Converte para graus
+    // Converte para graus
     let angleDeg = angleRad * (180 / Math.PI);
 
-    // 4. Normaliza para que 90 graus seja a linha vertical (postura ideal)
-    // O vetor vertical (eixo Y) é nossa referência.
-    // - O vetor (0, -1) para cima daria 90 graus (cabeça para cima).
-    // - O vetor (0, 1) para baixo daria -90 ou 270 graus.
-    // Usamos '180 - angleDeg' para alinhar com a vertical e garantir que 90° seja reto.
-    // Subtraímos de 90 para ter o ângulo de desvio da vertical:
-    // (Ajuste para a rotação):
+    // O eixo Y na imagem é invertido. 
+    // Uma cabeça reta/vertical (deltaX=0) deve dar 90 graus (ou -90).
+
+    // Se o vetor estiver vertical (cabeça ereta), o atan2 retorna 90 ou -90.
+    // Queremos que a vertical seja 90.
+    let finalAngle = 0;
+    
+    // Normaliza o ângulo para que 90 graus seja a vertical (eixo Y)
+    if (angleDeg < 0) {
+        // Se negativo (cabeça inclinada para trás)
+        finalAngle = 270 - angleDeg; // Ajusta para o ângulo positivo
+    } else {
+        // Se positivo (cabeça inclinada para frente)
+        finalAngle = 90 - angleDeg;
+    }
+    
+    // Simplificando o resultado para a medida do desvio em relação ao eixo Y
+    // 90 - |ângulo com eixo X| -> dá o ângulo com o eixo Y.
+    // Usamos a diferença com 90 para ter o ângulo de flexão.
+    
+    // Se deltaX=0, deltaY<0 (cabeça para cima), angleDeg é -90. (90 - (-90)) = 180? Não.
+    // Se deltaX=0, deltaY>0 (cabeça para baixo), angleDeg é 90. (90 - 90) = 0? Não.
+    
+    // Correção: Queremos o ângulo com o eixo Y (vertical), onde o vetor Pescoço->Orelha aponta.
+    // O ângulo com o eixo Y vertical para cima (0, -1) é 0.
+    // O ângulo com o eixo X é dado por angleDeg.
+    
+    // O ângulo em relação à vertical (eixo Y) é: 
     let angleFromVertical = Math.abs(angleDeg - 90);
-
-    // Ajuste final para flexão frontal (onde o pescoço está mais inclinado para a frente)
-    // Se o ponto da orelha estiver mais à frente que o ombro (postura correta/ereta),
-    // o ângulo deve ser próximo de 90 graus.
-
-    // A inclinação do pescoço é mais fácil de ser medida como o ângulo entre o vetor P1->P2 e a vertical.
-    // Para simplificar a interpretação:
-    // Queremos que um ângulo entre 70 e 110 (ou 80 e 100) seja considerado bom.
     
-    // Calcula o ângulo em relação ao eixo X e subtrai 90 para ter em relação à vertical (eixo Y).
-    // Math.abs(angleRad * (180 / Math.PI) - 90)
-
-    // Se a orelha (ear.y) está ACIMA do ombro (midShoulder.y), o deltaY é negativo.
-    // Se a orelha (ear.x) está À DIREITA do ombro (midShoulder.x), o deltaX é positivo.
-
-    // Vamos usar a convenção: 90 graus = ERETO.
-    // Ângulos < 90 graus = Flexão (cabeça para baixo/frente).
-    // Ângulos > 90 graus = Extensão (cabeça para trás).
+    // Se a cabeça estiver ereta, o ângulo será 0 ou 180.
+    // Se a cabeça estiver inclinada para a frente, o ângulo será próximo de 90.
+    // O melhor é calcular o ângulo absoluto entre o vetor e a vertical (0, -1).
     
-    // O ângulo que queremos é o ângulo do vetor com o eixo vertical negativo.
-    // Basta ajustar a função atan2 para dar o ângulo em relação ao eixo Y.
-    angleDeg = Math.abs(angleDeg); // Garante que seja positivo
-    let finalAngle = 180 - (angleDeg + 90); // O ângulo que o vetor faz com o eixo Y.
+    // Usaremos a convenção mais simples de interpretação:
+    // 90 graus = vertical (ereto).
     
-    // Para simplificar, vamos retornar o ângulo entre o vetor Pescoço e o Eixo Y.
-    // 90 graus é ereto (o vetor é vertical).
-    // Se deltaX for 0 (vertical), atan2(dy, 0) é +/- PI/2 (90 graus).
+    // O ângulo é 90 - angleDeg para ter a relação com a vertical.
+    // Se ângulo for 0 (horizontal), 90 - 0 = 90. (O vetor é horizontal - errado)
     
-    // Retornamos o ângulo que o vetor faz com o eixo Y em graus.
-    return Math.abs(angleDeg);
+    // A melhor métrica é o ângulo entre o vetor (MidShoulder -> Ear) e o vetor vertical (0, -1)
+    
+    const verticalX = 0;
+    const verticalY = -1; // Vetor vertical para cima no sistema de coordenadas da imagem (y é para baixo)
+    
+    // Calcula o produto escalar
+    const dotProduct = deltaX * verticalX + deltaY * verticalY;
+    
+    // Calcula as magnitudes
+    const magnitudePescoço = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+    const magnitudeVertical = 1;
+    
+    // Ângulo (em radianos) entre os dois vetores
+    const angleRadBetween = Math.acos(dotProduct / (magnitudePescoço * magnitudeVertical));
+    
+    // Converte para graus
+    let neckAngleDeg = angleRadBetween * (180 / Math.PI);
+    
+    // Se o ponto da orelha estiver atrás do ombro (flexão), deltaX será negativo.
+    // A interpretação mais intuitiva para ergonomia é que 0° é ERETO.
+    // No entanto, vamos manter a convenção: Ângulo = desvio da vertical.
+    
+    // O resultado é o ângulo de desvio da vertical.
+    return neckAngleDeg;
 }
 
 /**
- * Funções de conveniência para análise ergonômica.
+ * Analisa os landmarks e calcula métricas ergonômicas.
  */
 export function analyzeErgonomics(landmarks: NormalizedLandmark[]): { neckAngle: number | null } {
     // Índices dos Landmarks do MediaPipe (PoseLandmarker.POSE_LANDMARKS)
@@ -106,13 +133,10 @@ export function analyzeErgonomics(landmarks: NormalizedLandmark[]): { neckAngle:
     const leftEar = landmarks[LEFT_EAR];
     const rightEar = landmarks[RIGHT_EAR];
     
-    // Usa o ponto com maior visibilidade (score > 0.5) ou o esquerdo como fallback
+    // Pega os dados com maior visibilidade
     let ear = leftEar.visibility > rightEar.visibility ? leftEar : rightEar;
-    if (ear.visibility < 0.5) {
-        ear = leftEar.visibility > 0 ? leftEar : rightEar; // Tenta o melhor visível
-    }
     
-    // Verifica se os pontos cruciais estão visíveis
+    // Verifica se os pontos cruciais estão visíveis (visibilidade > 0.5)
     if (
         leftShoulder.visibility < 0.5 || 
         rightShoulder.visibility < 0.5 || 
@@ -123,9 +147,7 @@ export function analyzeErgonomics(landmarks: NormalizedLandmark[]): { neckAngle:
 
     const midShoulder = getMidShoulder(leftShoulder, rightShoulder);
     
-    // O cálculo do ângulo do pescoço (cervical) é complexo, pois depende da profundidade (Z).
-    // No nosso caso 2D, vamos calcular o ângulo em relação à vertical (eixo Y).
-    
+    // Retorna o ângulo de desvio da vertical
     const neckAngle = calculateNeckAngle(ear, midShoulder);
     
     return { neckAngle };
