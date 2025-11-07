@@ -161,10 +161,28 @@ function setupVideoUpload() {
           finalText += `Punho - Pontuação: ${currentRebaData.wrist.score}, Tempo: ${currentRebaData.wrist.exposureTime.toFixed(1)}s\n`;
           angleDisplay.textContent = finalText;
       }
-      if (riskDisplay) {
-          const riskLevel = getRebaRiskLevel(currentRebaData.rebaScoreFinal);
-          riskDisplay.textContent = `Risco Final: ${riskLevel}\nPontuação: ${currentRebaData.rebaScoreFinal}`;
-      }
+
+	  		// 🆕 4. Exibe o risco final na cor correta
+		if (riskDisplay) {
+			const riskLevel = getRebaRiskLevel(currentRebaData.rebaScoreFinal);
+			// Exibe Score C e Score Final
+			riskDisplay.textContent = `Risco Final: ${riskLevel}\nPontuação: ${currentRebaData.rebaScoreFinal}`;
+
+			// Define a cor de fundo com base no score final
+			let bgColor = 'rgba(0, 0, 0, 0.7)'; // Preto semi-transparente como padrão
+			if (currentRebaData.rebaScoreFinal <= 1) {
+				bgColor = 'rgba(0, 100, 0, 0.7)'; // Verde escuro para negligible
+			} else if (currentRebaData.rebaScoreFinal <= 3) {
+				bgColor = 'rgba(173, 216, 230, 0.7)'; // Azul claro para low
+			} else if (currentRebaData.rebaScoreFinal <= 7) {
+				bgColor = 'rgba(255, 255, 0, 0.7)'; // Amarelo para medium
+			} else if (currentRebaData.rebaScoreFinal <= 10) {
+				bgColor = 'rgba(255, 165, 0, 0.7)'; // Laranja para high
+			} else {
+				bgColor = 'rgba(139, 0, 0, 0.7)'; // Vermelho escuro para very high
+			}
+			riskDisplay.style.backgroundColor = bgColor;
+		}
     };
 
     uploadedVideo.onerror = (err) => {
@@ -305,13 +323,27 @@ function setupVideoUpload() {
                 // angleDisplay.style.color = displayColor; // Comentado para manter a cor padrão do texto
             }
 
-            // 🆕 4. Exibe o risco REBA
-            if (riskDisplay) {
-                const riskLevel = getRebaRiskLevel(currentRebaData.rebaScoreFinal);
-                // Exibe Score C e Score Final
-                riskDisplay.textContent = `Risco: ${riskLevel}\nScore C: ${currentRebaData.tableCScore}\nScore Final: ${currentRebaData.rebaScoreFinal}`;
-            }
+			// 🆕 4. Exibe o risco REBA e atualiza a cor
+			if (riskDisplay) {
+				const riskLevel = getRebaRiskLevel(currentRebaData.rebaScoreFinal);
+				// Exibe Score C e Score Final
+				riskDisplay.textContent = `Risco: ${riskLevel}\nScore C: ${currentRebaData.tableCScore}\nScore Final: ${currentRebaData.rebaScoreFinal}`;
 
+				// Define a cor de fundo com base no score final
+				let bgColor = 'rgba(0, 0, 0, 0.7)'; // Preto semi-transparente como padrão
+				if (currentRebaData.rebaScoreFinal <= 1) {
+					bgColor = 'rgba(0, 100, 0, 0.7)'; // Verde escuro para negligible
+				} else if (currentRebaData.rebaScoreFinal <= 3) {
+					bgColor = 'rgba(173, 216, 230, 0.7)'; // Azul claro para low
+				} else if (currentRebaData.rebaScoreFinal <= 7) {
+					bgColor = 'rgba(255, 255, 0, 0.7)'; // Amarelo para medium
+				} else if (currentRebaData.rebaScoreFinal <= 10) {
+					bgColor = 'rgba(255, 165, 0, 0.7)'; // Laranja para high
+				} else {
+					bgColor = 'rgba(139, 0, 0, 0.7)'; // Vermelho escuro para very high
+				}
+				riskDisplay.style.backgroundColor = bgColor;
+			}
 
             // --- Desenho DAS LINHAS ERGONÔMICAS PRIMEIRO (para garantir visibilidade) ---
 

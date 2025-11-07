@@ -675,7 +675,7 @@ function getLegsBin(leftHip: NormalizedLandmark, rightHip: NormalizedLandmark, l
     if (leftKneeY > leftHipY && rightKneeY > rightHipY) {
         return "unilateral"; // Proxy para postura instável
     } else {
-        return "bilateral"; // Proxy para postura estável
+        return "bilateral"; // Proxy para postura estável (default)
     }
 }
 
@@ -984,7 +984,7 @@ export function updateRebaData(rebaData: RebaData, newAngles: ReturnType<typeof 
     // 1. Pontuar o Grupo A (Neck, Trunk, Legs) - Pontuação Postural
     const neckScorePostural = updatedData.neck.score;
     const trunkScorePostural = updatedData.trunk.score;
-    const legsScorePostural = updatedData.legs.score; // Este valor é 1 ou 2
+    const legsScorePostural = updatedData.legs.score; // Este valor deve ser 1 ou 2
 
     // 2. Pontuar o Grupo B (Upper Arm, Lower Arm, Wrist) - Pontuação Postural
     const upperArmScorePostural = updatedData.arm.score;
@@ -1032,13 +1032,26 @@ export function updateRebaData(rebaData: RebaData, newAngles: ReturnType<typeof 
     ];
 
     // Mapear os scores para índices (1->0, 2->1, 3->2, 4->3, 5->4, 6->5) - Limitado a 5 para Tabela A
-    const neckIdxA = Math.min(adjustedNeckScoreA - 1, 5);
-    const trunkIdxA = Math.min(adjustedTrunkScoreA - 1, 4); // Tabela A vai até 5 para tronco
+    // Calcula os índices brutos
+    let neckIdxA = adjustedNeckScoreA - 1;
+    let trunkIdxA = adjustedTrunkScoreA - 1; // Tabela A vai até 5 para tronco
     // CORREÇÃO AQUI:
     // O legsScorePostural é 1 ou 2, então o índice deve ser legsScorePostural - 1 (0 ou 1)
-    const legsIdxA = legsScorePostural - 1; // 1->0, 2->1
+    let legsIdxA = legsScorePostural - 1; // 1->0, 2->1
 
-    let postureScoreA = tableA[legsIdxA][trunkIdxA][neckIdxA];
+    // --- VERIFICAÇÃO DE LIMITES: Aplicar limites ANTES de usar na matriz ---
+    neckIdxA = Math.max(0, Math.min(5, neckIdxA)); // Garante 0 <= neckIdxA <= 5
+    trunkIdxA = Math.max(0, Math.min(4, trunkIdxA)); // Garante 0 <= trunkIdxA <= 4 (Tabela A vai até 5 para tronco)
+    legsIdxA = Math.max(0, Math.min(1, legsIdxA)); // Garante 0 <= legsIdxA <= 1
+
+    // --- SEGURANÇA: Verificar se tableA e os índices intermediários existem ---
+    let postureScoreA = 0; // Valor padrão seguro
+    // Acesso: tableA[legsIdxA][trunkIdxA][neckIdxA]
+    if (tableA[legsIdxA] && tableA[legsIdxA][trunkIdxA] && typeof tableA[legsIdxA][trunkIdxA][neckIdxA] === 'number') {
+        postureScoreA = tableA[legsIdxA][trunkIdxA][neckIdxA];
+    } else {
+        console.warn("WARNING: tableA lookup failed, defaulting to 0. Indices:", legsIdxA, trunkIdxA, neckIdxA, "Table structure:", tableA);
+    }
 
     // 4. Aplicar ajustes para o Score B (raised, abducted, supported, bent, twisted)
     let adjustedUpperArmScoreB = upperArmScorePostural;
@@ -1075,7 +1088,7 @@ export function updateRebaData(rebaData: RebaData, newAngles: ReturnType<typeof 
     // Tabela B conforme especificações:
     // Antebraço 1: 1,2,2,3 (Braço 1,2,3,4) | 3,4,5,5 (Braço 1,2,3,4) | 6,7,8,8 (Braço 1,2,3,4)
     // Antebraço 2: 1,2,3,4 (Braço 1,2,3,4) | 2,3,4,5 (Braço 1,2,3,4) | 5,6,7,8 (Braço 1,2,3,4)
-    // Ajustado para índices: [wrist_idx][forearm_idx][arm_idx]
+    // Ajustado para índices: [wrist_idx][arm_idx][forearm_idx] - Ordem correta para acesso
     const tableB = [
         // wristScore = 1 (idx 0)
         [
@@ -1107,11 +1120,26 @@ export function updateRebaData(rebaData: RebaData, newAngles: ReturnType<typeof 
     ];
 
     // Mapear os scores para índices (1->0, 2->1, 3->2, 4->3, 5->4, 6->5)
-    const armIdxB = Math.min(adjustedUpperArmScoreB - 1, 5);
-    const forearmIdxB = Math.min(adjustedLowerArmScoreB - 1, 1); // Tabela B vai até 2 para antebraço
-    const wristIdxB = Math.min(adjustedWristScoreB - 1, 2);
+    // Calcula os índices brutos
+    let armIdxB = adjustedUpperArmScoreB - 1;
+    let forearmIdxB = adjustedLowerArmScoreB - 1; // Tabela B vai até 2 para antebraço
+    let wristIdxB = adjustedWristScoreB - 1;
 
-    let postureScoreB = tableB[wristIdxB][forearmIdxB][armIdxB];
+    // --- VERIFICAÇÃO DE LIMITES: Aplicar limites ANTES de usar na matriz ---
+    armIdxB = Math.max(0, Math.min(5, armIdxB)); // Garante 0 <= armIdxB <= 5
+    forearmIdxB = Math.max(0, Math.min(1, forearmIdxB)); // Garante 0 <= forearmIdxB <= 1 (Tabela B vai até 2 para antebraço, mas índice vai até 1)
+    wristIdxB = Math.max(0, Math.min(2, wristIdxB)); // Garante 0 <= wristIdxB <= 2
+
+    // --- SEGURANÇA: Verificar se tableB e os índices intermediários existem ---
+    let postureScoreB = 0; // Valor padrão seguro
+    // Acesso: tableB[wristIdxB][armIdxB][forearmIdxB] - A estrutura da matriz B define esta ordem
+    // Estrutura: [wrist][arm][forearm] -> tableB[wrist][arm][forearm]
+    // Acesso: [wristIdxB][armIdxB][forearmIdxB]
+    if (tableB[wristIdxB] && tableB[wristIdxB][armIdxB] && typeof tableB[wristIdxB][armIdxB][forearmIdxB] === 'number') {
+        postureScoreB = tableB[wristIdxB][armIdxB][forearmIdxB];
+    } else {
+        console.warn("WARNING: tableB lookup failed, defaulting to 0. Indices (w,f,a):", wristIdxB, forearmIdxB, armIdxB, "Table structure:", tableB);
+    }
 
     // 5. Combinar as pontuações A e B usando Tabela C
     // Tabela C: Score C = lookup(postureScoreA, postureScoreB)
@@ -1132,10 +1160,26 @@ export function updateRebaData(rebaData: RebaData, newAngles: ReturnType<typeof 
     ];
 
     // Mapear os scores para índices (1->0, 2->1, ..., 12->11)
-    const scoreAIdx = Math.min(postureScoreA - 1, 11);
-    const scoreBIdx = Math.min(postureScoreB - 1, 11);
+    // Calcula os índices brutos
+    let scoreAIdx = postureScoreA - 1;
+    let scoreBIdx = postureScoreB - 1;
 
-    let tableCScore = tableC[scoreAIdx][scoreBIdx];
+    // --- VERIFICAÇÃO DE LIMITES: Aplicar limites ANTES de usar na matriz ---
+    scoreAIdx = Math.max(0, Math.min(11, scoreAIdx)); // Garante 0 <= scoreAIdx <= 11
+    scoreBIdx = Math.max(0, Math.min(11, scoreBIdx)); // Garante 0 <= scoreBIdx <= 11
+
+    let tableCScore = 0; // Valor padrão seguro
+    if (typeof postureScoreA === 'number' && typeof postureScoreB === 'number' && !isNaN(scoreAIdx) && !isNaN(scoreBIdx)) {
+        tableCScore = tableC[scoreAIdx][scoreBIdx];
+    } else {
+        console.warn("WARNING: tableC lookup failed due to invalid postureScores or indices. postureScoreA:", postureScoreA, "postureScoreB:", postureScoreB, "scoreAIdx:", scoreAIdx, "scoreBIdx:", scoreBIdx);
+    }
+
+    // --- SEGURANÇA: Garantir que tableCScore seja um número ---
+    if (typeof tableCScore !== 'number' || isNaN(tableCScore)) {
+        console.warn("WARNING: tableCScore is not a valid number, defaulting to 0. postureScoreA:", postureScoreA, "postureScoreB:", postureScoreB, "scoreAIdx:", scoreAIdx, "scoreBIdx:", scoreBIdx);
+        tableCScore = 0; // Valor padrão seguro
+    }
 
     // 6. Pontuar os fatores de ajuste (Força/Carga e Acoplamento)
     // --- NOVO CÁLCULO: Força/Carga (Substitui o bloco antigo) ---
@@ -1161,27 +1205,20 @@ export function updateRebaData(rebaData: RebaData, newAngles: ReturnType<typeof 
     }
 
     // 7. Calcular a Pontuação C ajustada (Score A + Score B + Force/Load + Coupling)
-    const scoreCAdjusted = tableCScore + updatedData.forceLoadScore + updatedData.couplingScore;
+    // Certifique-se de que tableCScore é um número antes de somar
+    const scoreCAdjusted = (typeof tableCScore === 'number' ? tableCScore : 0) + updatedData.forceLoadScore + updatedData.couplingScore;
 
-    // 8. Pontuar a atividade
-    // Baseado em heurísticas (pode ser ajustado)
-    // Ajuste: Atividade é +1 se uma ou mais partes do corpo estão estáticas (>1 minuto) ou ações repetidas (>4/min).
-    // Ajuste: Atividade é +1 se o tronco ou pescoço tiverem muitos eventos (mudanças) em um curto período
-    // ou se o tempo de exposição a ângulos altos for considerável (indicando postura estática).
-    // Vamos considerar um evento de frequência alto (> 4 eventos por minuto) como repetitivo.
-    const trunkFreq = updatedData.trunk.frequency;
-    const neckFreq = updatedData.neck.frequency;
-    const trunkStatic = updatedData.trunk.exposureTime > 60; // Mais de 1 minuto
-    const neckStatic = updatedData.neck.exposureTime > 60; // Mais de 1 minuto
-
-    if (trunkStatic || neckStatic || trunkFreq > 4 || neckFreq > 4) { // Ajuste: >4/min como exemplo de repetitivo
-        updatedData.activityScore = 1; // Static or repeated actions
-    } else {
-        updatedData.activityScore = 0; // No activity
-    }
+    // 8. Pontuar a atividade (já está feito)
 
     // 9. Calcular a Pontuação REBA final (Score C ajustada + Activity)
-    const rebaScoreFinal = scoreCAdjusted + updatedData.activityScore;
+    // Certifique-se de que os componentes são números antes de somar
+    const rebaScoreFinal = scoreCAdjusted + (typeof updatedData.activityScore === 'number' ? updatedData.activityScore : 0);
+
+    // --- SEGURANÇA: Garantir que rebaScoreFinal seja um número ---
+    if (isNaN(rebaScoreFinal)) {
+        console.warn("WARNING: rebaScoreFinal is NaN, defaulting to 0. scoreCAdjusted:", scoreCAdjusted, "activityScore:", updatedData.activityScore);
+        rebaScoreFinal = 0; // Valor padrão seguro
+    }
 
     // Atualizar os dados finais
     updatedData.postureScoreA = postureScoreA;
@@ -1200,14 +1237,14 @@ export function updateRebaData(rebaData: RebaData, newAngles: ReturnType<typeof 
  */
 export function getRebaRiskLevel(rebaScore: number): string {
     if (rebaScore <= 1) {
-        return "negligible risk, no action required";
+        return "Risco ignorável, nenhuma ação necessária";
     } else if (rebaScore <= 3) {
-        return "low risk, change may be needed";
+        return "Risco baixo, mudanças podem ser implementadas";
     } else if (rebaScore <= 7) {
-        return "medium risk, further investigation, change soon";
+        return "Risco médio, investigue mais e aplique possíveis mudanças";
     } else if (rebaScore <= 10) {
-        return "high risk, investigate and implement change";
+        return "Risco alto, investigue a aplique mudanças";
     } else {
-        return "very high risk, implement change";
+        return "Risco muito alto, implemente mudanças o quanto antes";
     }
 }
