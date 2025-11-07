@@ -9,11 +9,15 @@ import {
 } from "https://cdn.skypack.dev/@mediapipe/tasks-vision@0.10.0";
 
 // Importa os utilitários e dados REBA. Vite resolverá a extensão .ts.
-import { analyzeErgonomics, updateRebaData, initialRebaData, RebaData } from "./ergonomics-utils.ts"; 
+import { analyzeErgonomics, updateRebaData, initialRebaData, RebaData, getRebaRiskLevel } from "./ergonomics-utils.ts"; 
 
 const demosSection = document.getElementById("demos");
 let poseLandmarker: PoseLandmarker = undefined;
 let angleDisplay: HTMLParagraphElement; // Elemento para exibir os dados REBA
+let riskDisplay: HTMLParagraphElement; // Elemento para exibir o risco REBA
+
+// Variável global para armazenar o score de força
+let globalForceLoadScore = 0;
 
 const createPoseLandmarker = async () => {
   const vision = await FilesetResolver.forVisionTasks(
@@ -36,6 +40,12 @@ const createPoseLandmarker = async () => {
   angleDisplay.style.cssText = 'position: absolute; top: 10px; left: 10px; color: white; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 5px; z-index: 10; font-weight: bold; font-family: monospace; font-size: 14px; line-height: 1.4; max-width: 400px; white-space: pre-line;'; // Adicionado max-width, ajustes de estilo e quebra de linha
   const videoContainer = document.getElementById("uploadedVideoContainer");
   if (videoContainer) videoContainer.appendChild(angleDisplay);
+
+  // 🆕 Cria e anexa o elemento de exibição do risco REBA
+  riskDisplay = document.createElement('p');
+  riskDisplay.id = 'rebaRiskDisplay';
+  riskDisplay.style.cssText = 'position: absolute; top: 10px; right: 10px; color: white; background: rgba(139, 0, 0, 0.7); padding: 10px; border-radius: 5px; z-index: 10; font-weight: bold; font-family: monospace; font-size: 14px; line-height: 1.4; max-width: 300px; white-space: pre-line;'; // Alinhado à direita
+  if (videoContainer) videoContainer.appendChild(riskDisplay);
 
   setupVideoUpload();
 };
@@ -78,6 +88,7 @@ function setupVideoUpload() {
     uploadCtx.clearRect(0, 0, uploadCanvas.width, uploadCanvas.height);
     uploadVideoPredicting = false;
     if (angleDisplay) angleDisplay.textContent = 'Aguardando vídeo...';
+    if (riskDisplay) riskDisplay.textContent = 'Risco: -';
 
     // 🆕 Reset dados REBA
     currentRebaData = initialRebaData;
@@ -115,6 +126,9 @@ function setupVideoUpload() {
       // Fatores de escala (globais para acesso fácil)
       (window as any).scaleX = uploadCanvas.width / tempCanvas.width;
       (window as any).scaleY = uploadCanvas.height / tempCanvas.height;
+
+      // 🆕 Exibe o diálogo para informar a carga
+      showCargaDialog();
     };
 
     uploadedVideo.onplay = () => {
@@ -147,12 +161,53 @@ function setupVideoUpload() {
           finalText += `Punho - Pontuação: ${currentRebaData.wrist.score}, Tempo: ${currentRebaData.wrist.exposureTime.toFixed(1)}s\n`;
           angleDisplay.textContent = finalText;
       }
+      if (riskDisplay) {
+          const riskLevel = getRebaRiskLevel(currentRebaData.rebaScoreFinal);
+          riskDisplay.textContent = `Risco Final: ${riskLevel}\nPontuação: ${currentRebaData.rebaScoreFinal}`;
+      }
     };
 
     uploadedVideo.onerror = (err) => {
       console.error("❌ Video error:", err);
       uploadVideoPredicting = false;
     };
+  }
+
+  // 🆕 Função para exibir o diálogo e capturar o valor da carga
+  function showCargaDialog() {
+    // Cria o diálogo dinamicamente se não existir
+    let dialog = document.getElementById('cargaDialog') as HTMLDialogElement;
+    if (!dialog) {
+        dialog = document.createElement('dialog');
+        dialog.id = 'cargaDialog';
+        dialog.innerHTML = `
+            <form method="dialog">
+                <h3>Informe a carga manual:</h3>
+                <label for="cargaSelect">Carga:</label>
+                <select id="cargaSelect" name="carga">
+                    <option value="0">carga menor que 2kg</option>
+                    <option value="1">carga entre 2kg e 10kg</option>
+                    <option value="2">carga acima de 10kg</option>
+                </select>
+                <br><br>
+                <button type="submit">Confirmar</button>
+            </form>
+        `;
+        document.body.appendChild(dialog);
+
+        dialog.addEventListener('close', (event) => {
+            // Quando o diálogo é fechado (por submit ou esc), obtenha o valor
+            const selectedValue = (document.getElementById('cargaSelect') as HTMLSelectElement).value;
+            // Converta para número
+            globalForceLoadScore = parseInt(selectedValue, 10);
+            // Valide o valor
+            if (isNaN(globalForceLoadScore) || globalForceLoadScore < 0 || globalForceLoadScore > 2) {
+                globalForceLoadScore = 0; // Valor padrão se inválido
+            }
+            console.log("Carga selecionada (forceLoadScore):", globalForceLoadScore);
+        });
+    }
+    dialog.showModal(); // Exibe o diálogo
   }
 
   async function predictUploadedVideo() {
@@ -184,6 +239,9 @@ function setupVideoUpload() {
             const currentAngles = analyzeErgonomics(landmarks);
 
             // 🆕 2. Atualiza os dados REBA - Agora passa os landmarks
+            // Define o forceLoadScore base antes de chamar updateRebaData
+            // Isto é feito aqui para garantir que o valor atualizado seja usado
+            currentRebaData.forceLoadScore = globalForceLoadScore;
             currentRebaData = updateRebaData(currentRebaData, currentAngles, now, deltaTime, landmarks);
 
             // 🆕 3. Exibição dos dados REBA formatados (Apenas para a primeira pose)
@@ -245,6 +303,13 @@ function setupVideoUpload() {
                     displayColor = 'yellow'; // Alerta
                 }
                 // angleDisplay.style.color = displayColor; // Comentado para manter a cor padrão do texto
+            }
+
+            // 🆕 4. Exibe o risco REBA
+            if (riskDisplay) {
+                const riskLevel = getRebaRiskLevel(currentRebaData.rebaScoreFinal);
+                // Exibe Score C e Score Final
+                riskDisplay.textContent = `Risco: ${riskLevel}\nScore C: ${currentRebaData.tableCScore}\nScore Final: ${currentRebaData.rebaScoreFinal}`;
             }
 
 

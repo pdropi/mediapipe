@@ -1,52 +1,29 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Pose Detection using MediaPipe</title>
-  <link href="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.css" rel="stylesheet">
-  <script src="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.js"></script>
-  <link rel="stylesheet" href="/style.css">
+  <title>Detecção de Pose - Upload de Vídeo</title>
+  <link href="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.css  " rel="stylesheet">
+  <link rel="stylesheet" href="style-video.css">
 </head>
 <body>
-  <h1>Pose detection using the MediaPipe PoseLandmarker task</h1>
+  <h1>Detecção de Pose em Vídeos carregados via Upload</h1>
   <section id="demos" class="invisible">
-    <h2>Demo: Detecting Images</h2>
-    <p><b>Click on an image below</b> to see the key landmarks of the body.</p>
+    <h2>Demonstração de análise de vídeo com Mediapipe</h2>
+    <p><b>Selecione um vídeo</b> do seu computador para realizar a detecção de pose.</p>
 
-    <div class="detectOnClick">
-      <img src="https://assets.codepen.io/9177687/woman-ge0f199f92_640.jpg" width="100%" crossorigin="anonymous" title="Click to get detection!" />
-    </div>
-    <div class="detectOnClick">
-      <img src="https://assets.codepen.io/9177687/woman-g1af8d3deb_640.jpg" width="100%" crossorigin="anonymous" title="Click to get detection!" />
-    </div>
-
-    <h2>Demo: Webcam continuous pose landmarks detection</h2>
-    <p>Stand in front of your webcam to get real-time pose landmarker detection. Click <b>enable webcam</b> below and grant access to the webcam if prompted.</p>
-
-    <div id="liveView" class="videoView">
-      <button id="webcamButton" class="mdc-button mdc-button--raised">
-        <span class="mdc-button__ripple"></span>
-        <span class="mdc-button__label">ENABLE WEBCAM</span>
-      </button>
-      <div style="position: relative;">
-        <video id="webcam" style="width: 1280px; height: 720px; position: absolute;" autoplay playsinline></video>
-        <canvas class="output_canvas" id="output_canvas" width="1280" height="720" style="position: absolute; left: 0px; top: 0px;"></canvas>
-      </div>
-    </div>
-
-    <h2>Demo: Carregar um Vídeo para Detecção de Pose</h2>
-    <p><b>Selecione um vídeo</b> do seu computador para realizar a detecção de pose nele.</p>
     <div style="margin: 20px 0; text-align: center;">
       <input type="file" id="videoUpload" accept="video/*" />
     </div>
-    <div id="uploadedVideoContainer" class="videoView">
-      <video id="uploadedVideo" controls style="width: 100%; height: auto;"></video>
-      <canvas id="uploadCanvas" class="output_canvas" style="position: absolute; left: 0px; top: 0px;"></canvas>
-    </div>
     
+    <div id="uploadedVideoContainer">
+      <!-- Os elementos 'angleDisplay' e 'rebaRiskDisplay' serão injetados aqui pelo JavaScript -->
+      <video id="uploadedVideo" controls></video>
+      <canvas id="uploadCanvas"></canvas>
+    </div>
   </section>
 
-  <script type="module" src="/src/index.ts"></script>
+  <script type="module" src="src/video-upload.ts"></script>
 </body>
 </html>
