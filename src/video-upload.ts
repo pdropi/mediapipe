@@ -8,8 +8,11 @@ import {
   NormalizedLandmark,
 } from "https://cdn.skypack.dev/@mediapipe/tasks-vision@0.10.0";
 
-// Importa os utilitários e dados REBA. Vite resolverá a extensão .ts.
-import { analyzeErgonomics, updateRebaData, initialRebaData, RebaData, getRebaRiskLevel } from "./ergonomics-utils.ts"; 
+// Importa os utilitários e dados REBA.
+import { analyzeErgonomics, calculateReliability } from "./ergonomics-utils.ts";
+import { updateRebaData, initialRebaData, RebaData, getRebaRiskLevel } from "./reba-utils.ts";
+// Importa os utilitários e dados NIOSH (placeholder).
+import { initialNioshData, NioshData, updateNioshData, getNioshRiskLevel } from "./niosh-utils.ts";
 
 const demosSection = document.getElementById("demos");
 let poseLandmarker: PoseLandmarker = undefined;
@@ -21,7 +24,7 @@ let globalForceLoadScore = 0;
 
 const createPoseLandmarker = async () => {
   const vision = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm" // URL correta
   );
   poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
     baseOptions: {
@@ -33,18 +36,18 @@ const createPoseLandmarker = async () => {
   });
   demosSection.classList.remove("invisible");
   console.log("✅ PoseLandmarker loaded for video upload");
-  
-  // 🆕 Cria e anexa o elemento de exibição dos dados REBA (Painel)
+
+  // Cria e anexa o elemento de exibição dos dados REBA (Painel)
   angleDisplay = document.createElement('p');
   angleDisplay.id = 'angleDisplay';
-  angleDisplay.style.cssText = 'position: absolute; top: 10px; left: 10px; color: white; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 5px; z-index: 10; font-weight: bold; font-family: monospace; font-size: 14px; line-height: 1.4; max-width: 400px; white-space: pre-line;'; // Adicionado max-width, ajustes de estilo e quebra de linha
+  angleDisplay.style.cssText = 'position: absolute; top: 10px; left: 10px; color: white; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 5px; z-index: 10; font-weight: bold; font-family: monospace; font-size: 14px; line-height: 1.4; max-width: 400px; white-space: pre-line;';
   const videoContainer = document.getElementById("uploadedVideoContainer");
   if (videoContainer) videoContainer.appendChild(angleDisplay);
 
-  // 🆕 Cria e anexa o elemento de exibição do risco REBA
+  // Cria e anexa o elemento de exibição do risco REBA
   riskDisplay = document.createElement('p');
   riskDisplay.id = 'rebaRiskDisplay';
-  riskDisplay.style.cssText = 'position: absolute; top: 10px; right: 10px; color: white; background: rgba(139, 0, 0, 0.7); padding: 10px; border-radius: 5px; z-index: 10; font-weight: bold; font-family: monospace; font-size: 14px; line-height: 1.4; max-width: 300px; white-space: pre-line;'; // Alinhado à direita
+  riskDisplay.style.cssText = 'position: absolute; top: 10px; right: 10px; color: white; background: rgba(139, 0, 0, 0.7); padding: 10px; border-radius: 5px; z-index: 10; font-weight: bold; font-family: monospace; font-size: 14px; line-height: 1.4; max-width: 300px; white-space: pre-line;';
   if (videoContainer) videoContainer.appendChild(riskDisplay);
 
   setupVideoUpload();
@@ -61,7 +64,7 @@ function setupVideoUpload() {
   // Canvas temporário para processamento
   const tempCanvas = document.createElement('canvas');
   const tempCtx = tempCanvas.getContext('2d')!;
-  
+
   // Dimensões máximas compatíveis
   const MAX_WIDTH = 1280;
   const MAX_HEIGHT = 720;
@@ -70,7 +73,7 @@ function setupVideoUpload() {
   let lastUploadVideoTime = -1;
   let lastTimestamp = performance.now(); // Para calcular deltaTime
 
-  // 🆕 Armazena os dados REBA
+  // Armazena os dados REBA
   let currentRebaData: RebaData = initialRebaData;
 
   videoUpload.addEventListener("change", handleVideoUpload);
@@ -88,38 +91,41 @@ function setupVideoUpload() {
     uploadCtx.clearRect(0, 0, uploadCanvas.width, uploadCanvas.height);
     uploadVideoPredicting = false;
     if (angleDisplay) angleDisplay.textContent = 'Aguardando vídeo...';
-    if (riskDisplay) riskDisplay.textContent = 'Risco: -';
+    if (riskDisplay) {
+        riskDisplay.textContent = 'Risco: -';
+        riskDisplay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)'; // Reset cor para padrão
+    }
 
-    // 🆕 Reset dados REBA
+    // Reset dados REBA
     currentRebaData = initialRebaData;
 
     uploadedVideo.onloadedmetadata = () => {
       console.log("🎞️ Video metadata loaded");
       console.log("Original video dimensions:", uploadedVideo.videoWidth, uploadedVideo.videoHeight);
-      
+
       // Calcula dimensões para processamento
       let processedWidth = uploadedVideo.videoWidth;
       let processedHeight = uploadedVideo.videoHeight;
-      
+
       if (processedWidth > MAX_WIDTH || processedHeight > MAX_HEIGHT) {
         const ratio = Math.min(MAX_WIDTH / processedWidth, MAX_HEIGHT / processedHeight);
         processedWidth = Math.floor(processedWidth * ratio);
         processedHeight = Math.floor(processedHeight * ratio);
         console.log(`📐 Resizing for processing: ${processedWidth}x${processedHeight}`);
       }
-      
+
       // Configura canvas temporário
       tempCanvas.width = processedWidth;
       tempCanvas.height = processedHeight;
-      
+
       // Configura canvas de exibição mantendo proporção original
       const displayRatio = Math.min(MAX_WIDTH / uploadedVideo.videoWidth, MAX_HEIGHT / uploadedVideo.videoHeight);
       const displayWidth = Math.floor(uploadedVideo.videoWidth * displayRatio);
       const displayHeight = Math.floor(uploadedVideo.videoHeight * displayRatio);
-      
+
       uploadCanvas.width = displayWidth;
       uploadCanvas.height = displayHeight;
-      
+
       console.log("Processing canvas:", tempCanvas.width, tempCanvas.height);
       console.log("Display canvas:", uploadCanvas.width, uploadCanvas.height);
 
@@ -127,7 +133,7 @@ function setupVideoUpload() {
       (window as any).scaleX = uploadCanvas.width / tempCanvas.width;
       (window as any).scaleY = uploadCanvas.height / tempCanvas.height;
 
-      // 🆕 Exibe o diálogo para informar a carga
+      // Exibe o diálogo para informar a carga
       showCargaDialog();
     };
 
@@ -161,28 +167,24 @@ function setupVideoUpload() {
           finalText += `Punho - Pontuação: ${currentRebaData.wrist.score}, Tempo: ${currentRebaData.wrist.exposureTime.toFixed(1)}s\n`;
           angleDisplay.textContent = finalText;
       }
-
-	  		// 🆕 4. Exibe o risco final na cor correta
-		if (riskDisplay) {
-			const riskLevel = getRebaRiskLevel(currentRebaData.rebaScoreFinal);
-			// Exibe Score C e Score Final
-			riskDisplay.textContent = `Risco Final: ${riskLevel}\nPontuação: ${currentRebaData.rebaScoreFinal}`;
-
-			// Define a cor de fundo com base no score final
-			let bgColor = 'rgba(0, 0, 0, 0.7)'; // Preto semi-transparente como padrão
-			if (currentRebaData.rebaScoreFinal <= 1) {
-				bgColor = 'rgba(0, 100, 0, 0.7)'; // Verde escuro para negligible
-			} else if (currentRebaData.rebaScoreFinal <= 3) {
-				bgColor = 'rgba(173, 216, 230, 0.7)'; // Azul claro para low
-			} else if (currentRebaData.rebaScoreFinal <= 7) {
-				bgColor = 'rgba(255, 255, 0, 0.7)'; // Amarelo para medium
-			} else if (currentRebaData.rebaScoreFinal <= 10) {
-				bgColor = 'rgba(255, 165, 0, 0.7)'; // Laranja para high
-			} else {
-				bgColor = 'rgba(139, 0, 0, 0.7)'; // Vermelho escuro para very high
-			}
-			riskDisplay.style.backgroundColor = bgColor;
-		}
+      if (riskDisplay) {
+          const riskLevel = getRebaRiskLevel(currentRebaData.rebaScoreFinal);
+          riskDisplay.textContent = `Risco Final: ${riskLevel}\nPontuação: ${currentRebaData.rebaScoreFinal}`;
+          // Define a cor de fundo com base no score final
+          let bgColor = 'rgba(0, 0, 0, 0.7)'; // Preto semi-transparente como padrão
+          if (currentRebaData.rebaScoreFinal <= 1) {
+              bgColor = 'rgba(0, 100, 0, 0.7)'; // Verde escuro para negligible
+          } else if (currentRebaData.rebaScoreFinal <= 3) {
+              bgColor = 'rgba(173, 216, 230, 0.7)'; // Azul claro para low
+          } else if (currentRebaData.rebaScoreFinal <= 7) {
+              bgColor = 'rgba(255, 255, 0, 0.7)'; // Amarelo para medium
+          } else if (currentRebaData.rebaScoreFinal <= 10) {
+              bgColor = 'rgba(255, 165, 0, 0.7)'; // Laranja para high
+          } else {
+              bgColor = 'rgba(139, 0, 0, 0.7)'; // Vermelho escuro para very high
+          }
+          riskDisplay.style.backgroundColor = bgColor;
+      }
     };
 
     uploadedVideo.onerror = (err) => {
@@ -191,7 +193,7 @@ function setupVideoUpload() {
     };
   }
 
-  // 🆕 Função para exibir o diálogo e capturar o valor da carga
+  // Função para exibir o diálogo e capturar o valor da carga
   function showCargaDialog() {
     // Cria o diálogo dinamicamente se não existir
     let dialog = document.getElementById('cargaDialog') as HTMLDialogElement;
@@ -204,7 +206,7 @@ function setupVideoUpload() {
                 <label for="cargaSelect">Carga:</label>
                 <select id="cargaSelect" name="carga">
                     <option value="0">carga menor que 2kg</option>
-                    <option value="1">carga entre 2kg e 10kg</option>
+                    <option value="1">carga entre 2kg a 10kg</option>
                     <option value="2">carga acima de 10kg</option>
                 </select>
                 <br><br>
@@ -212,7 +214,6 @@ function setupVideoUpload() {
             </form>
         `;
         document.body.appendChild(dialog);
-
         dialog.addEventListener('close', (event) => {
             // Quando o diálogo é fechado (por submit ou esc), obtenha o valor
             const selectedValue = (document.getElementById('cargaSelect') as HTMLSelectElement).value;
@@ -237,7 +238,7 @@ function setupVideoUpload() {
     const now = performance.now();
     const deltaTime = (now - lastTimestamp) / 1000; // Converte para segundos
     lastTimestamp = now; // Atualiza o timestamp para a próxima iteração
-    
+
     if (uploadedVideo.currentTime !== lastUploadVideoTime) {
       lastUploadVideoTime = uploadedVideo.currentTime;
 
@@ -245,24 +246,28 @@ function setupVideoUpload() {
         // Processa no canvas temporário
         tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
         tempCtx.drawImage(uploadedVideo, 0, 0, tempCanvas.width, tempCanvas.height);
-        
+
         poseLandmarker.detectForVideo(tempCanvas, now, (result: PoseLandmarkerResult) => {
           uploadCtx.clearRect(0, 0, uploadCanvas.width, uploadCanvas.height);
-          
+
           if (result.landmarks && result.landmarks.length > 0) {
-            // Assumimos a primeira pose como a principal
+            // Assume a primeira pose como a principal
             const landmarks: NormalizedLandmark[] = result.landmarks[0];
-            
-            // 🆕 1. Cálculo dos ângulos ergonômicos (básicos)
+
+            // --- REMOÇÃO DA CONFIABILIDADE ---
+            // A lógica de "Procurando..." agora depende apenas da detecção de landmarks e do cálculo interno em analyzeErgonomics/updateRebaData
+            // Se analyzeErgonomics não conseguir calcular um ângulo, ele retornará null, e updateRebaData usará isso.
+            // O desenho do MediaPipe ainda será feito, mas os dados REBA serão marcados como "Não detectado".
+
+            // 1. Cálculo dos ângulos ergonômicos (básicos)
             const currentAngles = analyzeErgonomics(landmarks);
 
-            // 🆕 2. Atualiza os dados REBA - Agora passa os landmarks
+            // 2. Atualiza os dados REBA - Agora passa os landmarks
             // Define o forceLoadScore base antes de chamar updateRebaData
-            // Isto é feito aqui para garantir que o valor atualizado seja usado
             currentRebaData.forceLoadScore = globalForceLoadScore;
             currentRebaData = updateRebaData(currentRebaData, currentAngles, now, deltaTime, landmarks);
 
-            // 🆕 3. Exibição dos dados REBA formatados (Apenas para a primeira pose)
+            // 3. Exibição dos dados REBA formatados (Apenas para a primeira pose detectada)
             if (angleDisplay) {
                 let displayText = "";
                 // Formatação conforme o exemplo fornecido, adicionando a pontuação
@@ -306,47 +311,30 @@ function setupVideoUpload() {
                 displayText = displayText.trimEnd();
 
                 angleDisplay.textContent = displayText;
-
-                // Feedback Ergonômico Básico (opcional) - pode ser aplicado ao texto ou a um elemento separado
-                // Exemplo para o pescoço e tronco (mantido para compatibilidade visual anterior, se necessário)
-                const MAX_NECK_ANGLE = 25; // Exemplo: 25 graus
-                const MAX_TRUNK_ANGLE = 10; // Exemplo: 10 graus
-
-                let displayColor = 'white'; // Padrão: informação
-                if ((currentRebaData.neck.angle !== null && Math.abs(currentRebaData.neck.angle) > MAX_NECK_ANGLE) || 
-                    (currentRebaData.trunk.angle !== null && Math.abs(currentRebaData.trunk.angle) > MAX_TRUNK_ANGLE)) {
-                    displayColor = 'red'; // Ruim
-                } else if ((currentRebaData.neck.angle !== null && Math.abs(currentRebaData.neck.angle) > MAX_NECK_ANGLE * 0.7) || // Ajuste para "alerta"
-                           (currentRebaData.trunk.angle !== null && Math.abs(currentRebaData.trunk.angle) > MAX_TRUNK_ANGLE * 0.7)) {
-                    displayColor = 'yellow'; // Alerta
-                }
-                // angleDisplay.style.color = displayColor; // Comentado para manter a cor padrão do texto
             }
 
-			// 🆕 4. Exibe o risco REBA e atualiza a cor
-			if (riskDisplay) {
-				const riskLevel = getRebaRiskLevel(currentRebaData.rebaScoreFinal);
-				// Exibe Score C e Score Final
-				riskDisplay.textContent = `Risco: ${riskLevel}\nScore C: ${currentRebaData.tableCScore}\nScore Final: ${currentRebaData.rebaScoreFinal}`;
+            // 4. Exibe o risco REBA e atualiza a cor
+            if (riskDisplay) {
+                const riskLevel = getRebaRiskLevel(currentRebaData.rebaScoreFinal);
+                // Exibe Score C e Score Final
+                riskDisplay.textContent = `Risco: ${riskLevel}\nScore C: ${currentRebaData.tableCScore}\nScore Final: ${currentRebaData.rebaScoreFinal}`;
+                // Define a cor de fundo com base no score final
+                let bgColor = 'rgba(0, 0, 0, 0.7)'; // Preto semi-transparente como padrão
+                if (currentRebaData.rebaScoreFinal <= 1) {
+                    bgColor = 'rgba(0, 100, 0, 0.7)'; // Verde escuro para negligible
+                } else if (currentRebaData.rebaScoreFinal <= 3) {
+                    bgColor = 'rgba(173, 216, 230, 0.7)'; // Azul claro para low
+                } else if (currentRebaData.rebaScoreFinal <= 7) {
+                    bgColor = 'rgba(255, 255, 0, 0.7)'; // Amarelo para medium
+                } else if (currentRebaData.rebaScoreFinal <= 10) {
+                    bgColor = 'rgba(255, 165, 0, 0.7)'; // Laranja para high
+                } else {
+                    bgColor = 'rgba(139, 0, 0, 0.7)'; // Vermelho escuro para very high
+                }
+                riskDisplay.style.backgroundColor = bgColor;
+            }
 
-				// Define a cor de fundo com base no score final
-				let bgColor = 'rgba(0, 0, 0, 0.7)'; // Preto semi-transparente como padrão
-				if (currentRebaData.rebaScoreFinal <= 1) {
-					bgColor = 'rgba(0, 100, 0, 0.7)'; // Verde escuro para negligible
-				} else if (currentRebaData.rebaScoreFinal <= 3) {
-					bgColor = 'rgba(173, 216, 230, 0.7)'; // Azul claro para low
-				} else if (currentRebaData.rebaScoreFinal <= 7) {
-					bgColor = 'rgba(255, 255, 0, 0.7)'; // Amarelo para medium
-				} else if (currentRebaData.rebaScoreFinal <= 10) {
-					bgColor = 'rgba(255, 165, 0, 0.7)'; // Laranja para high
-				} else {
-					bgColor = 'rgba(139, 0, 0, 0.7)'; // Vermelho escuro para very high
-				}
-				riskDisplay.style.backgroundColor = bgColor;
-			}
-
-            // --- Desenho DAS LINHAS ERGONÔMICAS PRIMEIRO (para garantir visibilidade) ---
-
+            // --- Desenho DOS ELEMENTOS VISUAIS (Linhas Ergonômicas e MediaPipe) ---
             // Índices dos landmarks
             const LEFT_SHOULDER = 11;
             const RIGHT_SHOULDER = 12;
@@ -443,7 +431,7 @@ function setupVideoUpload() {
               x: landmark.x * (window as any).scaleX,
               y: landmark.y * (window as any).scaleY
             }));
-            
+
             // Desenha as conexões padrão do MediaPipe (sobrepostas pelas linhas ergonômicas)
             uploadDrawingUtils.drawConnectors(
               scaledLandmarks,
@@ -468,7 +456,16 @@ function setupVideoUpload() {
             if (headRefPoint) {
                 drawPoint(headRefPoint, 'white', 6); // Um pouco maior
             }
-            }
+          } else {
+             // Se não houver landmarks detectados
+             if (angleDisplay) angleDisplay.textContent = 'Procurando...';
+             if (riskDisplay) {
+                 riskDisplay.textContent = 'Risco: -';
+                 riskDisplay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)'; // Cor padrão
+             }
+             // Limpa o canvas de desenho se não houver landmarks
+             uploadCtx.clearRect(0, 0, uploadCanvas.width, uploadCanvas.height);
+          }
         });
       } catch (error) {
         console.error("Detection error:", error);
