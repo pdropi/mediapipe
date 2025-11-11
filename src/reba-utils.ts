@@ -692,7 +692,7 @@ export function updateRebaData(rebaData: RebaData, newAngles: { // Usando a assi
 
     // 9. Calcular a Pontuação REBA final (Score C ajustada + Activity)
     // Certifique-se de que os componentes são números antes de somar
-    const rebaScoreFinal = scoreCAdjusted + (typeof updatedData.activityScore === 'number' ? updatedData.activityScore : 0);
+    let rebaScoreFinal = scoreCAdjusted + (typeof updatedData.activityScore === 'number' ? updatedData.activityScore : 0);
 
     // --- SEGURANÇA: Garantir que rebaScoreFinal seja um número ---
     if (isNaN(rebaScoreFinal)) {

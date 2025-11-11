@@ -9,7 +9,7 @@
         "preview": "vite preview"
     },
     "dependencies": {
-        "@mediapipe/tasks-vision": "^0.10.0",
+        "@mediapipe/tasks-vision": "^0.10.21",
         "material-components-web": "^2.0.0"
     },
     "devDependencies": {

@@ -6,7 +6,7 @@ import {
   DrawingUtils,
   PoseLandmarkerResult,
   NormalizedLandmark,
-} from "https://cdn.skypack.dev/@mediapipe/tasks-vision@0.10.0";
+} from "https://cdn.skypack.dev/@mediapipe/tasks-vision@0.10.21";
 
 // Importa os utilitários e dados REBA.
 import { analyzeErgonomics, calculateReliability } from "./ergonomics-utils.ts";
@@ -24,7 +24,7 @@ let globalForceLoadScore = 0;
 
 const createPoseLandmarker = async () => {
   const vision = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm" // URL correta
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/wasm" // URL correta
   );
   poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
     baseOptions: {
